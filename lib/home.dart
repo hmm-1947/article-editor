@@ -18,7 +18,6 @@ class _HomeState extends State<Home> {
   final infoKeyController = TextEditingController();
   final infoValueController = TextEditingController();
 
-  /// ---------- TEXT FORMAT HELPERS ----------
   void _wrapSelection(String before, String after) {
     final text = bodyController.text;
     final selection = bodyController.selection;
@@ -41,7 +40,6 @@ class _HomeState extends State<Home> {
     );
   }
 
-  /// ---------- SAVE ----------
   void _saveArticle() {
     final articleData = {
       "title": titleController.text,
@@ -51,7 +49,6 @@ class _HomeState extends State<Home> {
       "savedAt": DateTime.now().toIso8601String(),
     };
 
-    // TEMP: console log (replace with DB later)
     debugPrint("SAVED ARTICLE:");
     debugPrint(articleData.toString());
 
@@ -148,7 +145,7 @@ class _HomeState extends State<Home> {
 
                   const SizedBox(height: 12),
 
-                  /// TOOLBAR (NOW WORKING)
+                  /// TOOLBAR
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(

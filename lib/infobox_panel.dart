@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:arted/flags.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:desktop_drop/desktop_drop.dart';
@@ -38,7 +39,6 @@ class InfoboxBlock {
     b.imagePath = json['imagePath'];
     b.caption = json['caption'];
 
-    // Restore image fit
     if (json['imageFit'] != null) {
       b.imageFit = BoxFit.values.firstWhere(
         (v) => v.toString() == json['imageFit'],
@@ -46,11 +46,9 @@ class InfoboxBlock {
       );
     }
 
-    // Restore width/height
     b.width = json['width']?.toDouble();
     b.height = json['height']?.toDouble();
 
-    // Restore crop rect
     if (json['crop'] != null) {
       final c = json['crop'];
       b.cropRect = Rect.fromLTWH(
@@ -65,6 +63,11 @@ class InfoboxBlock {
   }
 
   final InfoboxBlockType type;
+
+  TextEditingController? leftController;
+  TextEditingController? rightController;
+  TextEditingController? textController;
+  TextEditingController? captionController;
 
   String? left;
   String? right;
@@ -83,12 +86,17 @@ class InfoboxPanel extends StatefulWidget {
   final List<InfoboxBlock> blocks;
   final bool isViewMode;
   final Color panelColor;
+  final VoidCallback onChanged;
+  final void Function(TextEditingController controller) onOpenFlagPicker;
 
   const InfoboxPanel({
     super.key,
     required this.blocks,
     required this.isViewMode,
     required this.panelColor,
+
+    required this.onOpenFlagPicker,
+    required this.onChanged,
   });
 
   @override
@@ -96,6 +104,8 @@ class InfoboxPanel extends StatefulWidget {
 }
 
 class _InfoboxPanelState extends State<InfoboxPanel> {
+  TextEditingController? _activeController;
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -120,9 +130,34 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
     );
   }
 
-  // ───────────────── BLOCK RENDERER ─────────────────
+  void _ensureControllers(InfoboxBlock block) {
+    block.leftController ??= TextEditingController(text: block.left);
+    block.rightController ??= TextEditingController(text: block.right);
+    block.textController ??= TextEditingController(text: block.text);
+    block.captionController ??= TextEditingController(text: block.caption);
+
+    block.leftController!.addListener(() {
+      block.left = block.leftController!.text;
+    });
+
+    block.rightController!.addListener(() {
+      block.right = block.rightController!.text;
+    });
+
+    block.textController!.addListener(() {
+      block.text = block.textController!.text;
+    });
+
+    block.captionController!.addListener(() {
+      block.caption = block.captionController!.text;
+    });
+  }
 
   Widget _buildBlock(InfoboxBlock block) {
+    if (!widget.isViewMode) {
+      _ensureControllers(block);
+    }
+
     Widget content;
 
     switch (block.type) {
@@ -156,6 +191,7 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
                 setState(() {
                   widget.blocks.remove(block);
                 });
+                widget.onChanged();
               },
             ),
           ),
@@ -163,10 +199,8 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
     );
   }
 
-  // ───────────────── IMAGE BLOCK ─────────────────
   Widget _imageBlock(InfoboxBlock block) {
-    return Container(
-      color: Colors.white,
+    return Padding(
       padding: const EdgeInsets.all(8),
       child: Column(
         children: [
@@ -178,6 +212,7 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
               setState(() {
                 block.imagePath = file.path;
               });
+              widget.onChanged();
             },
             child: MouseRegion(
               cursor: widget.isViewMode
@@ -217,14 +252,16 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
             ),
           const SizedBox(height: 8),
           widget.isViewMode
-              ? Text(block.caption ?? "")
+              ? FlagsFeature.buildRichText(block.caption ?? "")
               : TextField(
-                  controller: TextEditingController(text: block.caption),
+                  controller: block.captionController,
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
                   decoration: const InputDecoration(
                     hintText: "Caption",
+                    hintStyle: TextStyle(color: Colors.grey),
                     isDense: true,
                   ),
-                  onChanged: (v) => block.caption = v,
+                  onTap: () => _activeController = block.captionController,
                 ),
         ],
       ),
@@ -240,6 +277,7 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         setState(() {
           block.imageFit = fit;
         });
+        widget.onChanged();
       },
       tooltip: fit.toString().split('.').last,
     );
@@ -261,95 +299,80 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
     });
   }
 
-  // ───────────────── TWO COLUMN BLOCK ─────────────────
-
   Widget _twoColumnBlock(InfoboxBlock block, {required bool showSeparator}) {
     if (widget.isViewMode) {
-      return IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: Text(
-                block.left ?? "",
-                style: const TextStyle(color: Colors.white),
-              ),
-            ),
-
-            if (showSeparator)
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 8),
-                width: 1,
-                color: Colors.grey.shade600,
-              ),
-
-            Expanded(
-              child: Text(
-                block.right ?? "",
-                style: const TextStyle(color: Colors.white),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: TextField(
-              style: const TextStyle(color: Colors.white),
-              controller: TextEditingController(text: block.left),
-              onChanged: (v) => block.left = v,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: FlagsFeature.buildRichText(block.left ?? ""),
             ),
           ),
-
           if (showSeparator)
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 8),
               width: 1,
               color: Colors.grey.shade600,
             ),
-
           Expanded(
-            child: TextField(
-              style: const TextStyle(color: Colors.white),
-              controller: TextEditingController(text: block.right),
-              onChanged: (v) => block.right = v,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: FlagsFeature.buildRichText(block.right ?? ""),
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  // ───────────────── CENTERED TEXT BLOCK ─────────────────
-
-  Widget _centeredTextBlock(InfoboxBlock block) {
-    if (widget.isViewMode) {
-      return Center(
-        child: Text(
-          block.text ?? "",
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
       );
     }
 
-    return TextField(
-      textAlign: TextAlign.center,
-      style: const TextStyle(color: Colors.white),
-      decoration: const InputDecoration(isDense: true),
-      controller: TextEditingController(text: block.text),
-      onChanged: (v) => block.text = v,
+    // EDIT MODE
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: TextField(
+            controller: block.leftController,
+            style: const TextStyle(color: Colors.white),
+            maxLines: null,
+            onTap: () => _activeController = block.leftController,
+            onChanged: (v) => block.left = v,
+          ),
+        ),
+        if (showSeparator)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 8),
+            width: 1,
+            color: Colors.grey.shade600,
+          ),
+        Expanded(
+          child: TextField(
+            controller: block.rightController,
+            style: const TextStyle(color: Colors.white),
+            maxLines: null,
+            onTap: () => _activeController = block.rightController,
+            onChanged: (v) => block.right = v,
+          ),
+        ),
+      ],
     );
   }
 
-  // ───────────────── BOTTOM TOOLBAR ─────────────────
+  Widget _centeredTextBlock(InfoboxBlock block) {
+    if (widget.isViewMode) {
+      return Center(child: FlagsFeature.buildRichText(block.text ?? ""));
+    }
+
+    return TextField(
+      controller: block.textController,
+      textAlign: TextAlign.center,
+      style: const TextStyle(color: Colors.white),
+      maxLines: null,
+      onTap: () => _activeController = block.textController,
+
+      onChanged: (v) => block.text = v,
+    );
+  }
 
   Widget _bottomToolbar() {
     return Container(
@@ -376,6 +399,14 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
             icon: const Icon(Icons.format_align_center),
             onPressed: () => _addBlock(InfoboxBlockType.centeredText),
           ),
+          IconButton(
+            icon: const Icon(Icons.flag),
+            onPressed: () {
+              if (_activeController != null) {
+                widget.onOpenFlagPicker(_activeController!);
+              }
+            },
+          ),
         ],
       ),
     );
@@ -385,5 +416,6 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
     setState(() {
       widget.blocks.add(InfoboxBlock(type: type));
     });
+    widget.onChanged();
   }
 }

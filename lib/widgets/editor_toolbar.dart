@@ -15,6 +15,9 @@ class EditorToolbar extends StatelessWidget {
   final VoidCallback onAlignRight;
   final VoidCallback onAlignJustify;
   final VoidCallback onLink;
+  final VoidCallback onOpenFlagMenu;
+  final bool showToc;
+  final VoidCallback onToggleToc;
 
   const EditorToolbar({
     super.key,
@@ -32,6 +35,9 @@ class EditorToolbar extends StatelessWidget {
     required this.onAlignRight,
     required this.onAlignJustify,
     required this.onLink,
+    required this.onOpenFlagMenu,
+    this.showToc = false,
+    required this.onToggleToc,
   });
 
   @override
@@ -50,6 +56,7 @@ class EditorToolbar extends StatelessWidget {
         child: Row(
           children: [
             _toolBtn("H", onHeading),
+            divider(),
             _toolBtn("B", onBold),
             _toolBtn("I", onItalic),
             _toolBtn("U", onUnderline),
@@ -57,16 +64,17 @@ class EditorToolbar extends StatelessWidget {
             _toolBtn("X²", onSuperscript),
             _toolBtn("X₂", onSubscript),
 
-            _divider(),
+            divider(),
 
             _iconBtn(Icons.format_align_left, onAlignLeft),
             _iconBtn(Icons.format_align_center, onAlignCenter),
             _iconBtn(Icons.format_align_right, onAlignRight),
             _iconBtn(Icons.format_align_justify, onAlignJustify),
 
-            _divider(),
-
+            divider(),
             _iconBtn(Icons.link, onLink),
+            divider(),
+            _iconBtn(Icons.flag, onOpenFlagMenu),
           ],
         ),
       ),
@@ -93,18 +101,22 @@ class EditorToolbar extends StatelessWidget {
     );
   }
 
-  Widget _iconBtn(IconData icon, VoidCallback onTap) {
+  Widget _iconBtn(IconData icon, VoidCallback? onTap) {
     return IconButton(
-      icon: Icon(icon, color: Colors.white, size: 18),
+      icon: Icon(
+        icon,
+        color: onTap == null ? Colors.grey : Colors.white,
+        size: 18,
+      ),
       onPressed: onTap,
     );
   }
 
-  Widget _divider() {
+  static Widget divider() {
     return Container(
       width: 1,
-      height: 24,
-      margin: const EdgeInsets.symmetric(horizontal: 8),
+      height: 20,
+      margin: const EdgeInsets.symmetric(horizontal: 6),
       color: Colors.grey.shade700,
     );
   }

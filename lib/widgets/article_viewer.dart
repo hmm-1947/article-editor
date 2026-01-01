@@ -1,14 +1,18 @@
+import 'package:arted/text_formatter.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart';
+
+final Map<String, GlobalKey> headingKeys = {};
 
 class ArticleViewer extends StatelessWidget {
   final String text;
   final Function(String) onOpenLink;
+  final ScrollController scrollController;
 
   const ArticleViewer({
     super.key,
     required this.text,
     required this.onOpenLink,
+    required this.scrollController,
   });
 
   @override
@@ -17,7 +21,7 @@ class ArticleViewer extends StatelessWidget {
 
     TextAlign currentAlign = TextAlign.left;
     List<Widget> widgets = [];
-
+    int headingIndex = 0;
     for (final line in lines) {
       if (line.startsWith("[align:")) {
         if (line.contains("center")) {
@@ -33,20 +37,41 @@ class ArticleViewer extends StatelessWidget {
       }
 
       if (line.startsWith("## ")) {
+        final id = 'h_$headingIndex';
+        headingIndex++;
+
+        final cleanText = line.substring(3).trim();
+
+        headingKeys[id] = GlobalKey();
+
         widgets.add(
           Padding(
+            key: headingKeys[id],
             padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Text(
-              line.substring(3),
-              textAlign: currentAlign,
+            child: DefaultTextStyle.merge(
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 22,
                 fontWeight: FontWeight.bold,
+                height: 1.4,
+              ),
+              child: RichText(
+                textAlign: currentAlign,
+                text: buildFormattedSpan(
+                  cleanText,
+                  baseStyle: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    height: 1.4,
+                  ),
+                  onOpenLink: onOpenLink,
+                ),
               ),
             ),
           ),
         );
+
         continue;
       }
 
@@ -55,102 +80,28 @@ class ArticleViewer extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: Container(
             width: double.infinity,
-            child: _inlineFormattedText(line, currentAlign),
+            child: RichText(
+              textAlign: currentAlign,
+              text: buildFormattedSpan(
+                line,
+                baseStyle: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  height: 1.6,
+                ),
+                onOpenLink: onOpenLink,
+              ),
+            ),
           ),
         ),
       );
     }
 
     return SingleChildScrollView(
+      controller: scrollController,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: widgets,
-      ),
-    );
-  }
-
-  Widget _inlineFormattedText(String line, TextAlign align) {
-    final spans = <InlineSpan>[];
-    final regex = RegExp(
-      r'(\*\*.*?\*\*|_.*?_|(\^.*?\^)|(~.*?~)|(\[\[.*?\]\]))',
-    );
-    final matches = regex.allMatches(line);
-
-    int lastIndex = 0;
-
-    for (final match in matches) {
-      if (match.start > lastIndex) {
-        spans.add(TextSpan(text: line.substring(lastIndex, match.start)));
-      }
-
-      final token = match.group(0)!;
-
-      if (token.startsWith("**")) {
-        spans.add(
-          TextSpan(
-            text: token.substring(2, token.length - 2),
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-        );
-      } else if (token.startsWith("_")) {
-        spans.add(
-          TextSpan(
-            text: token.substring(1, token.length - 1),
-            style: const TextStyle(fontStyle: FontStyle.italic),
-          ),
-        );
-      } else if (token.startsWith("^")) {
-        spans.add(
-          WidgetSpan(
-            alignment: PlaceholderAlignment.top,
-            child: Transform.translate(
-              offset: const Offset(0, -6),
-              child: Text(
-                token.substring(1, token.length - 1),
-                style: const TextStyle(fontSize: 10, color: Colors.white),
-              ),
-            ),
-          ),
-        );
-      } else if (token.startsWith("~")) {
-        spans.add(
-          WidgetSpan(
-            alignment: PlaceholderAlignment.bottom,
-            child: Transform.translate(
-              offset: const Offset(0, 4),
-              child: Text(
-                token.substring(1, token.length - 1),
-                style: const TextStyle(fontSize: 10, color: Colors.white),
-              ),
-            ),
-          ),
-        );
-      } else if (token.startsWith("[[")) {
-        final title = token.substring(2, token.length - 2);
-        spans.add(
-          TextSpan(
-            text: title,
-            style: const TextStyle(
-              color: Colors.lightBlueAccent,
-              decoration: TextDecoration.underline,
-            ),
-            recognizer: TapGestureRecognizer()..onTap = () => onOpenLink(title),
-          ),
-        );
-      }
-
-      lastIndex = match.end;
-    }
-
-    if (lastIndex < line.length) {
-      spans.add(TextSpan(text: line.substring(lastIndex)));
-    }
-
-    return RichText(
-      textAlign: align,
-      text: TextSpan(
-        style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.6),
-        children: spans,
       ),
     );
   }

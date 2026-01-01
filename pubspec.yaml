@@ -33,7 +33,9 @@ dependencies:
   file_picker: ^10.3.8
   flutter:
     sdk: flutter
+  image: ^4.7.2
   path: ^1.9.1
+  path_provider: ^2.1.5
   sqflite_common_ffi: ^2.4.0+1
 
 dev_dependencies:

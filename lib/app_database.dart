@@ -15,7 +15,7 @@ class AppDatabase {
 
     return openDatabase(
       dbPath,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await _createTables(db);
       },
@@ -23,18 +23,21 @@ class AppDatabase {
         if (oldVersion < 2) {
           await _migrateToV2(db);
         }
+        if (oldVersion < 3) {
+          await _migrateToV3(db);
+        }
       },
     );
   }
 
-  /// Create fresh DB
   static Future<void> _createTables(Database db) async {
     await db.execute('''
       CREATE TABLE projects (
         id TEXT PRIMARY KEY,
         name TEXT,
-        description TEXT,   
-        created_at INTEGER
+        description TEXT,
+        created_at INTEGER,
+        updated_at INTEGER
       )
     ''');
 
@@ -72,6 +75,15 @@ class AppDatabase {
     try {
       await db.execute(
         "ALTER TABLE projects ADD COLUMN description TEXT DEFAULT ''",
+      );
+    } catch (_) {}
+  }
+
+  static Future<void> _migrateToV3(Database db) async {
+    try {
+      await db.execute('ALTER TABLE projects ADD COLUMN updated_at INTEGER');
+      await db.execute(
+        'UPDATE projects SET updated_at = created_at WHERE updated_at IS NULL',
       );
     } catch (_) {}
   }

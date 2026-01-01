@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
-
   @override
   State<DashboardPage> createState() => _DashboardPageState();
 }
@@ -18,6 +17,9 @@ class _DashboardPageState extends State<DashboardPage> {
   String searchQuery = "";
   Project? hoveredProject;
   Project? menuOpenProject;
+  int totalArticles = 0;
+  int totalWords = 0;
+  DateTime? lastUpdated;
 
   @override
   void initState() {
@@ -25,27 +27,71 @@ class _DashboardPageState extends State<DashboardPage> {
     _loadProjectsFromDb();
   }
 
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
   final List<Project> projects = [];
+  List<Project> get filteredProjects {
+    if (searchQuery.isEmpty) return projects;
+    return projects
+        .where((p) => p.name.toLowerCase().contains(searchQuery))
+        .toList();
+  }
 
   Future<void> _loadProjectsFromDb() async {
     final db = await AppDatabase.database;
+    final projectRows = await db.query('projects', orderBy: 'created_at DESC');
+    final articleRows = await db.query('articles');
 
-    final rows = await db.query('projects', orderBy: 'created_at DESC');
+    int articleCount = articleRows.length;
+    int wordCount = 0;
+    DateTime? latest;
+
+    for (final row in articleRows) {
+      final content = (row['content'] as String?) ?? "";
+      wordCount += content
+          .trim()
+          .split(RegExp(r'\s+'))
+          .where((w) => w.isNotEmpty)
+          .length;
+
+      final createdAt = DateTime.fromMillisecondsSinceEpoch(
+        row['created_at'] as int,
+      );
+      if (latest == null || createdAt.isAfter(latest)) {
+        latest = createdAt;
+      }
+    }
 
     setState(() {
-      projects.clear();
-      projects.addAll(
-        rows.map(
-          (row) => Project(
-            id: row['id'] as String,
-            name: row['name'] as String,
-            description: row['description'] as String? ?? "",
-            createdAt: DateTime.fromMillisecondsSinceEpoch(
-              row['created_at'] as int,
+      projects
+        ..clear()
+        ..addAll(
+          projectRows.map(
+            (row) => Project(
+              id: row['id'] as String,
+              name: row['name'] as String,
+              description: row['description'] as String? ?? "",
+              createdAt: DateTime.fromMillisecondsSinceEpoch(
+                row['created_at'] as int,
+              ),
+              updatedAt: row['updated_at'] != null
+                  ? DateTime.fromMillisecondsSinceEpoch(
+                      row['updated_at'] as int,
+                    )
+                  : DateTime.fromMillisecondsSinceEpoch(
+                      row['created_at'] as int,
+                    ),
             ),
           ),
-        ),
-      );
+        );
+
+      totalArticles = articleCount;
+      totalWords = wordCount;
+      lastUpdated = latest;
     });
   }
 
@@ -101,36 +147,36 @@ class _DashboardPageState extends State<DashboardPage> {
               onPressed: () async {
                 if (nameController.text.trim().isEmpty) return;
 
-                // 1️⃣ Create Project object
+                final now = DateTime.now();
+
                 final project = Project(
-                  id: DateTime.now().millisecondsSinceEpoch.toString(),
+                  id: now.millisecondsSinceEpoch.toString(),
                   name: nameController.text.trim(),
                   description: descController.text.trim(),
-                  createdAt: DateTime.now(),
+                  createdAt: now,
+                  updatedAt: now,
                 );
 
-                // 2️⃣ INSERT INTO DATABASE
                 final db = await AppDatabase.database;
 
                 await db.insert('projects', {
                   'id': project.id,
                   'name': project.name,
+                  'description': project.description,
                   'created_at': project.createdAt.millisecondsSinceEpoch,
+                  'updated_at': project.updatedAt.millisecondsSinceEpoch,
                 });
 
-                // 3️⃣ INSERT DEFAULT CATEGORY
                 await db.insert('categories', {
                   'id': '${project.id}_uncat',
                   'project_id': project.id,
                   'name': 'Uncategorized',
                 });
 
-                // 4️⃣ UPDATE UI STATE (SYNC ONLY)
                 setState(() {
                   projects.add(project);
                 });
 
-                // 5️⃣ CLOSE DIALOG
                 Navigator.pop(context);
               },
 
@@ -190,7 +236,6 @@ class _DashboardPageState extends State<DashboardPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  /// HEADER
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -232,9 +277,10 @@ class _DashboardPageState extends State<DashboardPage> {
                                   ),
                                 ),
                                 onChanged: (value) {
-                                  setState(() {
-                                    searchQuery = value.trim().toLowerCase();
-                                  });
+                                  final q = value.trim().toLowerCase();
+                                  if (q != searchQuery) {
+                                    setState(() => searchQuery = q);
+                                  }
                                 },
                               ),
                             ),
@@ -261,12 +307,18 @@ class _DashboardPageState extends State<DashboardPage> {
                         "Total Projects",
                         Icons.folder,
                       ),
-                      _statCard("0", "Total Articles", Icons.description),
-                      _statCard("0", "Words Written", Icons.trending_up),
                       _statCard(
-                        projects.isEmpty
-                            ? "-"
-                            : _formatDate(projects.last.createdAt),
+                        totalArticles.toString(),
+                        "Total Articles",
+                        Icons.description,
+                      ),
+                      _statCard(
+                        totalWords.toString(),
+                        "Words Written",
+                        Icons.trending_up,
+                      ),
+                      _statCard(
+                        lastUpdated == null ? "-" : _formatDate(lastUpdated!),
                         "Last Updated",
                         Icons.schedule,
                       ),
@@ -277,7 +329,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
                   /// PROJECT LIST
                   Text(
-                    "Your Projects (${projects.length})",
+                    "Your Projects",
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 18,
@@ -289,14 +341,40 @@ class _DashboardPageState extends State<DashboardPage> {
                   Wrap(
                     spacing: 16,
                     runSpacing: 16,
-                    children: projects
-                        .where(
-                          (p) =>
-                              searchQuery.isEmpty ||
-                              p.name.toLowerCase().startsWith(searchQuery),
-                        ) // 🔍 filter
-                        .map(_projectCard)
-                        .toList(),
+                    children: filteredProjects.map((project) {
+                      return ProjectCard(
+                        project: project,
+                        isHovered: hoveredProject == project,
+                        showMenu: menuOpenProject == project,
+                        onOpen: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  ProjectWorkspacePage(project: project),
+                            ),
+                          );
+                        },
+                        onHover: () => setState(() => hoveredProject = project),
+                        onExit: () => setState(() {
+                          hoveredProject = null;
+                          menuOpenProject = null;
+                        }),
+                        onMenuToggle: () => setState(() {
+                          menuOpenProject = menuOpenProject == project
+                              ? null
+                              : project;
+                        }),
+                        onEdit: () {
+                          setState(() => menuOpenProject = null);
+                          _showEditProjectDialog(project);
+                        },
+                        onDelete: () {
+                          setState(() => menuOpenProject = null);
+                          _confirmDeleteProject(project);
+                        },
+                      );
+                    }).toList(),
                   ),
                 ],
               ),
@@ -358,8 +436,6 @@ class _DashboardPageState extends State<DashboardPage> {
           ElevatedButton(
             onPressed: () async {
               final db = await AppDatabase.database;
-
-              // Delete articles + categories for the project
               await db.delete(
                 'articles',
                 where: 'project_id = ?',
@@ -445,8 +521,6 @@ class _DashboardPageState extends State<DashboardPage> {
                 where: 'id = ?',
                 whereArgs: [project.id],
               );
-
-              // Update UI list immediately
               setState(() {
                 project.name = nameController.text.trim();
                 project.description = descController.text.trim();
@@ -462,34 +536,65 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  /// ---------------- PROJECT CARD ----------------
-  Widget _projectCard(Project project) {
-    final isHovered = hoveredProject == project;
-    final showMenu = menuOpenProject == project;
+  String _formatDate(DateTime d) => "${d.day}/${d.month}/${d.year}";
+}
 
+/// ---------------- PROJECT MODEL ----------------
+class Project {
+  final String id;
+  String name;
+  String description;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  Project({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+}
+
+class ProjectCard extends StatelessWidget {
+  final Project project;
+  final bool isHovered;
+  final bool showMenu;
+  final VoidCallback onOpen;
+  final VoidCallback onHover;
+  final VoidCallback onExit;
+  final VoidCallback onMenuToggle;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  const ProjectCard({
+    super.key,
+    required this.project,
+    required this.isHovered,
+    required this.showMenu,
+    required this.onOpen,
+    required this.onHover,
+    required this.onExit,
+    required this.onMenuToggle,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return MouseRegion(
-      onEnter: (_) => setState(() => hoveredProject = project),
-      onExit: (_) => setState(() {
-        hoveredProject = null;
-        menuOpenProject = null;
-      }),
+      onEnter: (_) => onHover(),
+      onExit: (_) => onExit(),
       child: Stack(
         children: [
           InkWell(
             borderRadius: BorderRadius.circular(12),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ProjectWorkspacePage(project: project),
-                ),
-              );
-            },
+            onTap: onOpen,
             child: Container(
               width: 360,
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: cardColor,
+                color: _DashboardPageState.cardColor,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Column(
@@ -514,82 +619,75 @@ class _DashboardPageState extends State<DashboardPage> {
                   const SizedBox(height: 8),
                   Text(
                     project.description,
-                    style: const TextStyle(color: textGrey),
+                    style: const TextStyle(
+                      color: Colors.grey,
+                      fontSize: 18,
+                      height: 1.4,
+                    ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
+
                   const SizedBox(height: 12),
                   Text(
-                    _formatDate(project.createdAt),
-                    style: const TextStyle(color: textGrey, fontSize: 12),
+                    "Created: ${_format(project.createdAt)} | Updated: ${_format(project.updatedAt)}",
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
                   ),
                 ],
               ),
             ),
           ),
 
-          /// ── Menu Button (3 dots) ──
           if (isHovered)
             Positioned(
               top: 6,
               right: 6,
               child: IconButton(
                 icon: const Icon(Icons.more_horiz, color: Colors.white),
-                onPressed: () {
-                  setState(
-                    () => menuOpenProject = menuOpenProject == project
-                        ? null
-                        : project,
-                  );
-                },
+                onPressed: onMenuToggle,
               ),
             ),
 
-          /// ── Popup Menu ──
           if (showMenu)
             Positioned(
               top: 36,
               right: 6,
-              child: Container(
-                width: 120,
-                decoration: BoxDecoration(
-                  color: panelColor,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey.shade700),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _popupBtn(
-                      icon: Icons.edit,
-                      label: "Edit",
-                      onTap: () {
-                        setState(() => menuOpenProject = null);
-                        _showEditProjectDialog(project);
-                      },
-                    ),
-                    _popupBtn(
-                      icon: Icons.delete,
-                      label: "Delete",
-                      onTap: () {
-                        setState(() => menuOpenProject = null);
-                        _confirmDeleteProject(project);
-                      },
-                    ),
-                  ],
-                ),
-              ),
+              child: _ProjectMenu(onEdit: onEdit, onDelete: onDelete),
             ),
         ],
       ),
     );
   }
 
-  Widget _popupBtn({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
+  static String _format(DateTime d) => "${d.day}/${d.month}/${d.year}";
+}
+
+class _ProjectMenu extends StatelessWidget {
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  const _ProjectMenu({required this.onEdit, required this.onDelete});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 120,
+      decoration: BoxDecoration(
+        color: _DashboardPageState.panelColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade700),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _btn(Icons.edit, "Edit", onEdit),
+          _btn(Icons.delete, "Delete", onDelete),
+        ],
+      ),
+    );
+  }
+
+  Widget _btn(IconData icon, String label, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,
       child: Padding(
@@ -604,21 +702,4 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
     );
   }
-
-  String _formatDate(DateTime d) => "${d.day}/${d.month}/${d.year}";
-}
-
-/// ---------------- PROJECT MODEL ----------------
-class Project {
-  final String id;
-  String name;
-  String description;
-  final DateTime createdAt;
-
-  Project({
-    required this.id,
-    required this.name,
-    required this.description,
-    required this.createdAt,
-  });
 }

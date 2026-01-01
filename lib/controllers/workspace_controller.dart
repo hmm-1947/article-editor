@@ -9,11 +9,13 @@ import 'package:arted/app_database.dart';
 class WorkspaceController {
   final TextEditingController titleController = TextEditingController();
   final TextEditingController contentController = TextEditingController();
+  final List<TocEntry> tocEntries = [];
 
   final List<Article> articles = [];
   final List<String> categories = [];
   final List<Article> openTabs = [];
   Article? selectedArticle;
+  bool _infoboxDirty = false;
 
   bool isViewMode = false;
 
@@ -21,12 +23,20 @@ class WorkspaceController {
   final List<String> _redoStack = [];
   bool _ignoreUndo = false;
   Timer? _undoDebounce;
-  String _lastCommittedText = '';
+
+  String originalContent = "";
+  String originalTitle = "";
+  String generateHeadingId() => _generateHeadingId();
+
   Article? hoveredArticle;
   String? hoveredCategory;
+
   DateTime? lastSaved;
 
-  /// ------------ INIT ------------
+  String _generateHeadingId() {
+    return "h_${DateTime.now().microsecondsSinceEpoch}";
+  }
+
   void initialize(Function refreshUI, String projectId) {
     contentController.addListener(_onTextChanged);
 
@@ -35,7 +45,61 @@ class WorkspaceController {
     });
   }
 
-  /// ------------ LOAD CATEGORIES ------------
+  Map<String, String>? getCurrentHeadingInfo() {
+    final text = contentController.text;
+    final sel = contentController.selection;
+    if (!sel.isValid) return null;
+
+    final cursor = sel.start;
+    final lineStart = text.lastIndexOf('\n', cursor - 1) + 1;
+    final lineEnd = text.indexOf('\n', cursor);
+    final line = text.substring(
+      lineStart,
+      lineEnd == -1 ? text.length : lineEnd,
+    );
+
+    if (!line.trimLeft().startsWith("## ")) return null;
+
+    final idMatch = RegExp(r'\{#(.*?)\}').firstMatch(line);
+    if (idMatch == null) return null;
+
+    final id = idMatch.group(1)!;
+    final title = line.replaceAll(RegExp(r'##|\{#.*?\}'), '').trim();
+
+    return {"id": id, "title": title};
+  }
+
+  bool get isCursorOnHeading {
+    final text = contentController.text;
+    final sel = contentController.selection;
+
+    if (!sel.isValid) return false;
+    if (sel.start < 0 || sel.start > text.length) return false;
+    if (text.isEmpty) return false;
+
+    final cursor = sel.start;
+
+    final lineStart = text.lastIndexOf('\n', cursor - 1);
+    final start = lineStart == -1 ? 0 : lineStart + 1;
+
+    final lineEnd = text.indexOf('\n', cursor);
+    final end = lineEnd == -1 ? text.length : lineEnd;
+
+    if (start >= end) return false;
+
+    final line = text.substring(start, end);
+
+    return line.startsWith('## ');
+  }
+
+  void markInfoboxDirty() {
+    _infoboxDirty = true;
+  }
+
+  void clearDirtyFlags() {
+    _infoboxDirty = false;
+  }
+
   Future<void> _loadCategories(Function refreshUI, String projectId) async {
     final db = await AppDatabase.database;
     final rows = await db.query(
@@ -45,10 +109,10 @@ class WorkspaceController {
       orderBy: 'name ASC',
     );
 
-    categories.clear();
-    for (final row in rows) {
-      categories.add(row['name'] as String);
-    }
+    categories
+      ..clear()
+      ..addAll(rows.map((r) => r['name'] as String));
+
     if (!categories.contains('Uncategorized')) {
       categories.insert(0, 'Uncategorized');
     }
@@ -56,22 +120,44 @@ class WorkspaceController {
     refreshUI();
   }
 
-  /// ------------ UNDO LISTENER ------------
+  List<TocEntry> buildTocFromText(String text) {
+    final List<TocEntry> toc = [];
+    final lines = text.split('\n');
+
+    int headingIndex = 0;
+    int charOffset = 0;
+
+    for (final line in lines) {
+      if (line.startsWith('## ')) {
+        final title = line.substring(3).trim();
+        final id = 'h_$headingIndex';
+
+        toc.add(TocEntry(id: id, title: title, textOffset: charOffset));
+
+        headingIndex++;
+      }
+
+      charOffset += line.length + 1;
+    }
+
+    return toc;
+  }
+
   void _onTextChanged() {
     if (_ignoreUndo) return;
+
+    rebuildTocFromContent();
 
     final text = contentController.text;
     _undoDebounce?.cancel();
 
     _undoDebounce = Timer(const Duration(milliseconds: 400), () {
       if (_undoStack.isNotEmpty && _undoStack.last == text) return;
-
       _undoStack.add(text);
       _redoStack.clear();
     });
   }
 
-  /// ------------ LOAD ARTICLES ------------
   Future<void> _loadArticles(Function refreshUI, String projectId) async {
     final db = await AppDatabase.database;
 
@@ -82,104 +168,107 @@ class WorkspaceController {
       orderBy: 'created_at ASC',
     );
 
-    final loadedArticles = <Article>[];
-
-    for (final row in rows) {
-      final article = Article(
-        id: row['id'] as String,
-        title: row['title'] as String,
-        category: row['category'] as String,
-        content: row['content'] as String,
-        createdAt: DateTime.fromMillisecondsSinceEpoch(
-          row['created_at'] as int,
-        ),
-        infobox: {},
-      );
-
-      if (!categories.contains(article.category)) {
-        article.category = 'Uncategorized';
-      }
-      loadedArticles.add(article);
-    }
-
     articles
       ..clear()
-      ..addAll(loadedArticles);
+      ..addAll(
+        rows.map((row) {
+          return Article(
+            id: row['id'] as String,
+            title: row['title'] as String,
+            category: row['category'] as String,
+            content: row['content'] as String,
+            createdAt: DateTime.fromMillisecondsSinceEpoch(
+              row['created_at'] as int,
+            ),
+            infobox: {},
+          );
+        }),
+      );
 
     if (articles.isNotEmpty) {
       selectedArticle = articles.first;
       openTabs
         ..clear()
         ..add(selectedArticle!);
+
       _loadArticle(selectedArticle!);
-      selectedArticle!.infoboxBlocks.clear();
+
+      tocEntries
+        ..clear()
+        ..addAll(buildTocFromText(selectedArticle!.content));
+
       _loadInfoboxBlocks(selectedArticle!);
     }
 
     refreshUI();
   }
 
-  /// ------------ OPEN ARTICLE BY TITLE ------------
   void openArticleByTitle(String title, Function refreshUI) async {
     if (articles.isEmpty) return;
 
-    final match = articles.firstWhere(
+    selectedArticle = articles.firstWhere(
       (a) => a.title == title,
       orElse: () => articles.first,
     );
 
-    selectedArticle = match;
     _loadArticle(selectedArticle!);
-    await _loadInfoboxBlocks(selectedArticle!); // ← Add this
+    await _loadInfoboxBlocks(selectedArticle!);
 
     refreshUI();
   }
 
-  /// ------------ UNDO & REDO ------------
   void undo() {
-    if (isViewMode) return;
-    if (_undoStack.length <= 1) return;
+    if (isViewMode || _undoStack.length <= 1) return;
 
     _undoDebounce?.cancel();
     _ignoreUndo = true;
 
-    final current = _undoStack.removeLast();
-    _redoStack.add(current);
+    _redoStack.add(_undoStack.removeLast());
+    contentController.text = _undoStack.last;
 
-    final previous = _undoStack.last;
-    contentController.text = previous;
     _ignoreUndo = false;
   }
 
   void redo() {
-    if (isViewMode) return;
-    if (_redoStack.isEmpty) return;
+    if (isViewMode || _redoStack.isEmpty) return;
 
     _undoDebounce?.cancel();
     _ignoreUndo = true;
 
-    final next = _redoStack.removeLast();
-    _undoStack.add(next);
+    final text = _redoStack.removeLast();
+    _undoStack.add(text);
+    contentController.text = text;
 
-    contentController.text = next;
     _ignoreUndo = false;
   }
 
-  /// ------------ LOAD ARTICLE CONTENT ------------
+  bool get hasUnsavedChanges {
+    if (selectedArticle == null) return false;
+
+    return contentController.text != originalContent ||
+        titleController.text != originalTitle ||
+        _infoboxDirty;
+  }
+
   void _loadArticle(Article article) {
     _ignoreUndo = true;
+
     titleController.text = article.title;
     contentController.text = article.content;
-    _lastCommittedText = article.content;
+
+    rebuildTocFromContent();
+
+    originalContent = article.content;
+    originalTitle = article.title;
 
     _undoStack
       ..clear()
       ..add(article.content);
     _redoStack.clear();
+
     _ignoreUndo = false;
   }
 
-  /// ------------ TEXT FORMATTING ------------
   void wrapSelection(String before, String after) {
     final text = contentController.text;
     final selection = contentController.selection;
@@ -191,7 +280,6 @@ class WorkspaceController {
 
     _ignoreUndo = true;
     final selected = text.substring(selection.start, selection.end);
-
     final newText = text.replaceRange(
       selection.start,
       selection.end,
@@ -216,58 +304,114 @@ class WorkspaceController {
     _redoStack.clear();
 
     _ignoreUndo = true;
+
     final start = selection.start;
-    final lineStart = text.lastIndexOf('\n', start - 1) + 1;
+
+    int lineStart;
+    if (start <= 0) {
+      lineStart = 0;
+    } else {
+      final idx = text.lastIndexOf('\n', start - 1);
+      lineStart = idx == -1 ? 0 : idx + 1;
+    }
 
     final newText = text.replaceRange(lineStart, lineStart, prefix);
+
     contentController.text = newText;
     contentController.selection = TextSelection.collapsed(
       offset: start + prefix.length,
     );
+
     _ignoreUndo = false;
   }
 
-  /// ------------ SAVE ARTICLE ------------
+  Future<bool> requestArticleSwitch(
+    Article target,
+    Future<void> Function() onSave,
+  ) async {
+    if (!hasUnsavedChanges) {
+      _loadArticle(target);
+      await _loadInfoboxBlocks(target);
+      return true;
+    }
+
+    return false;
+  }
+
+  void rebuildTocFromContent() {
+    tocEntries.clear();
+
+    final text = contentController.text;
+    final lines = text.split('\n');
+
+    int headingIndex = 0;
+    int charOffset = 0;
+
+    for (final line in lines) {
+      if (line.startsWith('## ')) {
+        final title = line.substring(3).trim();
+        if (title.isNotEmpty) {
+          final id = 'h_$headingIndex';
+
+          tocEntries.add(
+            TocEntry(id: id, title: title, textOffset: charOffset),
+          );
+
+          headingIndex++;
+        }
+      }
+
+      charOffset += line.length + 1;
+    }
+  }
+
   Future<void> saveArticle(String projectId, Function refreshUI) async {
     final db = await AppDatabase.database;
     final a = selectedArticle!;
+
     final exists = await db.query(
       'articles',
       where: 'id = ?',
       whereArgs: [a.id],
     );
 
+    final data = {
+      'project_id': projectId,
+      'title': titleController.text.trim(),
+      'content': contentController.text,
+      'category': a.category,
+    };
+
     if (exists.isEmpty) {
       await db.insert('articles', {
         'id': a.id,
-        'project_id': projectId,
-        'title': titleController.text.trim(),
-        'content': contentController.text,
-        'category': a.category,
         'created_at': a.createdAt.millisecondsSinceEpoch,
+        ...data,
       });
     } else {
-      await db.update(
-        'articles',
-        {
-          'title': titleController.text.trim(),
-          'content': contentController.text,
-          'category': a.category,
-        },
-        where: 'id = ?',
-        whereArgs: [a.id],
-      );
+      await db.update('articles', data, where: 'id = ?', whereArgs: [a.id]);
     }
 
     await saveInfoboxBlocks(a);
 
+    await db.update(
+      'projects',
+      {'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'id = ?',
+      whereArgs: [projectId],
+    );
+
     a.title = titleController.text.trim();
     a.content = contentController.text;
+
     lastSaved = DateTime.now();
     refreshUI();
+
+    _infoboxDirty = false;
+    originalContent = contentController.text;
+    originalTitle = titleController.text;
   }
 
-  /// ------------ INFOBOX SAVE / LOAD ------------
   Future<void> _loadInfoboxBlocks(Article article) async {
     final db = await AppDatabase.database;
     final rows = await db.query(
@@ -277,15 +421,16 @@ class WorkspaceController {
       orderBy: 'position ASC',
     );
 
-    article.infoboxBlocks.clear();
-
-    for (final row in rows) {
-      final type = InfoboxBlockType.values.firstWhere(
-        (t) => t.name == row['type'],
+    article.infoboxBlocks
+      ..clear()
+      ..addAll(
+        rows.map((row) {
+          final type = InfoboxBlockType.values.firstWhere(
+            (t) => t.name == row['type'],
+          );
+          return InfoboxBlock.fromJson(type, jsonDecode(row['data'] as String));
+        }),
       );
-      final data = jsonDecode(row['data'] as String);
-      article.infoboxBlocks.add(InfoboxBlock.fromJson(type, data));
-    }
   }
 
   Future<void> saveInfoboxBlocks(Article article) async {
@@ -309,4 +454,12 @@ class WorkspaceController {
       });
     }
   }
+}
+
+class TocEntry {
+  final String id;
+  final String title;
+  final int textOffset;
+
+  TocEntry({required this.id, required this.title, required this.textOffset});
 }
