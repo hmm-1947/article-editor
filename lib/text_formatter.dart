@@ -2,6 +2,99 @@ import 'dart:ui';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+/// ---------- UNICODE MAPPINGS ----------
+const Map<String, String> _superscriptMap = {
+  '0': '⁰',
+  '1': '¹',
+  '2': '²',
+  '3': '³',
+  '4': '⁴',
+  '5': '⁵',
+  '6': '⁶',
+  '7': '⁷',
+  '8': '⁸',
+  '9': '⁹',
+  'a': 'ᵃ',
+  'b': 'ᵇ',
+  'c': 'ᶜ',
+  'd': 'ᵈ',
+  'e': 'ᵉ',
+  'f': 'ᶠ',
+  'g': 'ᵍ',
+  'h': 'ʰ',
+  'i': 'ⁱ',
+  'j': 'ʲ',
+  'k': 'ᵏ',
+  'l': 'ˡ',
+  'm': 'ᵐ',
+  'n': 'ⁿ',
+  'o': 'ᵒ',
+  'p': 'ᵖ',
+  'r': 'ʳ',
+  's': 'ˢ',
+  't': 'ᵗ',
+  'u': 'ᵘ',
+  'v': 'ᵛ',
+  'w': 'ʷ',
+  'x': 'ˣ',
+  'y': 'ʸ',
+  'z': 'ᶻ',
+  '+': '⁺',
+  '-': '⁻',
+  '=': '⁼',
+  '(': '⁽',
+  ')': '⁾',
+};
+
+const Map<String, String> _subscriptMap = {
+  '0': '₀',
+  '1': '₁',
+  '2': '₂',
+  '3': '₃',
+  '4': '₄',
+  '5': '₅',
+  '6': '₆',
+  '7': '₇',
+  '8': '₈',
+  '9': '₉',
+  'a': 'ₐ',
+  'e': 'ₑ',
+  'h': 'ₕ',
+  'i': 'ᵢ',
+  'j': 'ⱼ',
+  'k': 'ₖ',
+  'l': 'ₗ',
+  'm': 'ₘ',
+  'n': 'ₙ',
+  'o': 'ₒ',
+  'p': 'ₚ',
+  'r': 'ᵣ',
+  's': 'ₛ',
+  't': 'ₜ',
+  'u': 'ᵤ',
+  'v': 'ᵥ',
+  'x': 'ₓ',
+  '+': '₊',
+  '-': '₋',
+  '=': '₌',
+  '(': '₍',
+  ')': '₎',
+};
+
+String _toSuperscript(String text) {
+  return text.split('').map((char) {
+    final lower = char.toLowerCase();
+    return _superscriptMap[lower] ?? char;
+  }).join();
+}
+
+String _toSubscript(String text) {
+  return text.split('').map((char) {
+    final lower = char.toLowerCase();
+    return _subscriptMap[lower] ?? char;
+  }).join();
+}
+
 /// ---------- DECORATION MERGE ----------
 TextDecoration? _mergeDecoration(TextDecoration? base, TextDecoration? added) {
   if (base == null) return added;
@@ -16,8 +109,6 @@ String _normalizeFormatting(String input) {
   bool underline = false;
   bool strike = false;
   bool italic = false;
-  bool superScript = false;
-  bool subScript = false;
 
   String text = input;
 
@@ -31,14 +122,10 @@ String _normalizeFormatting(String input) {
   strip('**', () => bold = true);
   strip('__', () => underline = true);
   strip('~~', () => strike = true);
-  strip('^', () => superScript = true);
-  strip('~', () => subScript = true);
   strip('_', () => italic = true);
 
-  // rebuild in canonical order (inner → outer)
+  // rebuild in canonical order ONLY for style markers
   if (italic) text = '_${text}_';
-  if (subScript) text = '~${text}~';
-  if (superScript) text = '^${text}^';
   if (strike) text = '~~${text}~~';
   if (underline) text = '__${text}__';
   if (bold) text = '**${text}**';
@@ -51,20 +138,20 @@ InlineSpan _styledSpan(
   String inner,
   TextStyle style,
   TextStyle baseStyle,
-  Function(String)? onOpenLink,
-) {
+  Function(String)? onOpenLink, {
+  String? transformedText,
+}) {
   final mergedStyle = baseStyle.copyWith(
     fontWeight: style.fontWeight ?? baseStyle.fontWeight,
     fontStyle: style.fontStyle ?? baseStyle.fontStyle,
     fontSize: style.fontSize ?? baseStyle.fontSize,
-    fontFeatures: style.fontFeatures ?? baseStyle.fontFeatures,
     decoration: _mergeDecoration(baseStyle.decoration, style.decoration),
   );
 
   return TextSpan(
     style: mergedStyle,
     children: buildFormattedSpan(
-      inner,
+      transformedText ?? inner,
       baseStyle: mergedStyle,
       onOpenLink: onOpenLink,
     ).children,
@@ -88,7 +175,7 @@ TextSpan buildFormattedSpan(
     r'|__.*?__'
     r'|~~.*?~~'
     r'|\^.*?\^'
-    r'|~.*?~'
+    r'|~(?!~).*?~'
     r'|_.*?_)',
   );
 
@@ -129,27 +216,25 @@ TextSpan buildFormattedSpan(
         ),
       );
     } else if (token.startsWith("^")) {
+      final inner = token.substring(1, token.length - 1);
       spans.add(
         _styledSpan(
-          token.substring(1, token.length - 1),
-          const TextStyle(
-            fontFeatures: [FontFeature.superscripts()],
-            fontSize: 20,
-          ),
+          inner,
+          baseStyle,
           baseStyle,
           onOpenLink,
+          transformedText: _toSuperscript(inner),
         ),
       );
     } else if (token.startsWith("~")) {
+      final inner = token.substring(1, token.length - 1);
       spans.add(
         _styledSpan(
-          token.substring(1, token.length - 1),
-          const TextStyle(
-            fontFeatures: [FontFeature.subscripts()],
-            fontSize: 20,
-          ),
+          inner,
+          baseStyle,
           baseStyle,
           onOpenLink,
+          transformedText: _toSubscript(inner),
         ),
       );
     } else if (token.startsWith("_")) {

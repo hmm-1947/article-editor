@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:arted/text_formatter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
@@ -28,14 +29,25 @@ class FlagsFeature {
     return dir;
   }
 
-  static Widget buildRichText(String text) {
+  static Widget buildRichText(String text, {Function(String)? onOpenLink}) {
     final spans = <InlineSpan>[];
     final regex = RegExp(r'\[flag:([A-Z0-9]{2,3})\]');
     int lastIndex = 0;
 
     for (final match in regex.allMatches(text)) {
+      // text BEFORE flag → formatted (links, bold, etc)
       if (match.start > lastIndex) {
-        spans.add(TextSpan(text: text.substring(lastIndex, match.start)));
+        spans.add(
+          buildFormattedSpan(
+            text.substring(lastIndex, match.start),
+            baseStyle: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              height: 1.5,
+            ),
+            onOpenLink: onOpenLink,
+          ),
+        );
       }
 
       final tag = match.group(1)!;
@@ -64,26 +76,20 @@ class FlagsFeature {
     }
 
     if (lastIndex < text.length) {
-      spans.add(TextSpan(text: text.substring(lastIndex)));
+      spans.add(
+        buildFormattedSpan(
+          text.substring(lastIndex),
+          baseStyle: const TextStyle(
+            color: Colors.white,
+            fontSize: 14,
+            height: 1.5,
+          ),
+          onOpenLink: onOpenLink,
+        ),
+      );
     }
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return ConstrainedBox(
-          constraints: BoxConstraints(minHeight: flagHeight),
-          child: RichText(
-            text: TextSpan(
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 14,
-                height: 1.5,
-              ),
-              children: spans,
-            ),
-          ),
-        );
-      },
-    );
+    return RichText(text: TextSpan(children: spans));
   }
 
   static Future<void> pickAndSaveFlag(String tag) async {

@@ -88,15 +88,21 @@ class InfoboxPanel extends StatefulWidget {
   final Color panelColor;
   final VoidCallback onChanged;
   final void Function(TextEditingController controller) onOpenFlagPicker;
+  final void Function(String title)? onOpenLink; // view mode click
+  final Future<String?> Function()? onPickArticle; // edit mode picker
+
+  final Future<String?> Function()? onPickArticleLink;
 
   const InfoboxPanel({
     super.key,
     required this.blocks,
     required this.isViewMode,
     required this.panelColor,
-
     required this.onOpenFlagPicker,
     required this.onChanged,
+    this.onOpenLink,
+    this.onPickArticle,
+    this.onPickArticleLink,
   });
 
   @override
@@ -255,7 +261,10 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
 
           const SizedBox(height: 8),
           widget.isViewMode
-              ? FlagsFeature.buildRichText(block.caption ?? "")
+              ? FlagsFeature.buildRichText(
+                  block.caption ?? "",
+                  onOpenLink: widget.onOpenLink,
+                )
               : TextField(
                   controller: block.captionController,
                   style: const TextStyle(color: Colors.white, fontSize: 12),
@@ -310,7 +319,10 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
-              child: FlagsFeature.buildRichText(block.left ?? ""),
+              child: FlagsFeature.buildRichText(
+                block.left ?? "",
+                onOpenLink: widget.onOpenLink,
+              ),
             ),
           ),
           if (showSeparator)
@@ -322,7 +334,10 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
-              child: FlagsFeature.buildRichText(block.right ?? ""),
+              child: FlagsFeature.buildRichText(
+                block.right ?? "",
+                onOpenLink: widget.onOpenLink,
+              ),
             ),
           ),
         ],
@@ -363,7 +378,12 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
 
   Widget _centeredTextBlock(InfoboxBlock block) {
     if (widget.isViewMode) {
-      return Center(child: FlagsFeature.buildRichText(block.text ?? ""));
+      return Center(
+        child: FlagsFeature.buildRichText(
+          block.text ?? "",
+          onOpenLink: widget.onOpenLink,
+        ),
+      );
     }
 
     return TextField(
@@ -412,9 +432,43 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
                 }
               },
             ),
+            IconButton(
+              icon: const Icon(Icons.link),
+              tooltip: "Insert article link",
+              onPressed: () async {
+                if (_activeController == null) return;
+                if (widget.onPickArticle == null) return;
+
+                final title = await widget.onPickArticle!();
+                if (title == null) return;
+
+                _wrapSelectionWithLink(_activeController!, title);
+                widget.onChanged();
+              },
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  void _wrapSelectionWithLink(
+    TextEditingController controller,
+    String targetTitle,
+  ) {
+    final sel = controller.selection;
+    if (!sel.isValid) return;
+
+    final text = controller.text;
+    final selected = sel.isCollapsed
+        ? targetTitle
+        : text.substring(sel.start, sel.end);
+
+    final wrapped = '[[${selected}|$targetTitle]]';
+
+    controller.text = text.replaceRange(sel.start, sel.end, wrapped);
+    controller.selection = TextSelection.collapsed(
+      offset: sel.start + wrapped.length,
     );
   }
 

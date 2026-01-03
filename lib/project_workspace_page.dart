@@ -933,6 +933,25 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                                                 controller.markInfoboxDirty,
                                             onOpenFlagPicker:
                                                 _showFlagPickerForController,
+
+                                            onOpenLink: (title) {
+                                              final target = controller.articles
+                                                  .where(
+                                                    (a) => a.title == title,
+                                                  )
+                                                  .cast<Article?>()
+                                                  .firstOrNull;
+
+                                              if (target != null) {
+                                                _switchArticleSafely(target);
+                                              }
+                                            },
+
+                                            onPickArticle: () async {
+                                              final article =
+                                                  await _showArticleLinkPicker();
+                                              return article?.title;
+                                            },
                                           ),
                                   ),
                                 ),

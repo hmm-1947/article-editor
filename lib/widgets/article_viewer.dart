@@ -1,3 +1,4 @@
+import 'package:arted/flags.dart';
 import 'package:arted/text_formatter.dart';
 import 'package:flutter/material.dart';
 
@@ -55,18 +56,9 @@ class ArticleViewer extends StatelessWidget {
                 fontWeight: FontWeight.bold,
                 height: 1.4,
               ),
-              child: RichText(
-                textAlign: currentAlign,
-                text: buildFormattedSpan(
-                  cleanText,
-                  baseStyle: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    height: 1.4,
-                  ),
-                  onOpenLink: onOpenLink,
-                ),
+              child: FlagsFeature.buildRichText(
+                cleanText,
+                onOpenLink: onOpenLink,
               ),
             ),
           ),
@@ -74,23 +66,27 @@ class ArticleViewer extends StatelessWidget {
 
         continue;
       }
+      Alignment _alignFromTextAlign(TextAlign align) {
+        switch (align) {
+          case TextAlign.center:
+            return Alignment.center;
+          case TextAlign.right:
+            return Alignment.centerRight;
+          case TextAlign.justify:
+          case TextAlign.left:
+          default:
+            return Alignment.centerLeft;
+        }
+      }
 
       widgets.add(
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: Container(
             width: double.infinity,
-            child: RichText(
-              textAlign: currentAlign,
-              text: buildFormattedSpan(
-                line,
-                baseStyle: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  height: 1.6,
-                ),
-                onOpenLink: onOpenLink,
-              ),
+            child: Align(
+              alignment: _alignFromTextAlign(currentAlign),
+              child: FlagsFeature.buildRichText(line, onOpenLink: onOpenLink),
             ),
           ),
         ),
