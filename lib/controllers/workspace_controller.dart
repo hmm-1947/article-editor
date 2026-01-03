@@ -23,7 +23,7 @@ class WorkspaceController {
   
   final ValueNotifier<Article?> hoveredArticle = ValueNotifier(null);
   final ValueNotifier<String?> hoveredCategory = ValueNotifier(null);
-  final ValueNotifier<int> tocVersion = ValueNotifier(0); // For TOC updates
+  final ValueNotifier<int> tocVersion = ValueNotifier(0);
 
   DateTime? lastSaved;
 
@@ -46,10 +46,9 @@ class WorkspaceController {
   }
 
   void initialize(Function refreshUI, String projectId) {
-    // Listen to content changes and rebuild TOC
     contentController.addListener(() {
       rebuildTocFromContent();
-      tocVersion.value++; // Notify TOC listeners
+      tocVersion.value++;
     });
 
     _loadCategories(refreshUI, projectId).then((_) {
@@ -64,10 +63,6 @@ class WorkspaceController {
   void clearDirtyFlags() {
     _infoboxDirty = false;
   }
-
-  // ═══════════════════════════════════════════════════════════
-  // MARKDOWN TO DELTA CONVERSION
-  // ═══════════════════════════════════════════════════════════
 
   static List<Map<String, dynamic>> _markdownToDelta(String markdown) {
     final operations = <Map<String, dynamic>>[];
@@ -158,10 +153,6 @@ class WorkspaceController {
     }
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // DELTA JSON STORAGE
-  // ═══════════════════════════════════════════════════════════
-
   String _deltaToJson(quill.Document document) {
     return jsonEncode(document.toDelta().toJson());
   }
@@ -183,10 +174,6 @@ class WorkspaceController {
     final operations = _markdownToDelta(json);
     return quill.Document.fromJson(operations);
   }
-
-  // ═══════════════════════════════════════════════════════════
-  // ARTICLE LOADING & SAVING
-  // ═══════════════════════════════════════════════════════════
 
   Future<void> _loadCategories(Function refreshUI, String projectId) async {
     final db = await AppDatabase.database;
@@ -249,25 +236,25 @@ class WorkspaceController {
   }
 
   void _loadArticle(Article article) {
-    titleController.text = article.title;
-    
-    final document = _documentFromJson(article.content);
-    contentController = quill.QuillController(
-      document: document,
-      selection: const TextSelection.collapsed(offset: 0),
-    );
+  titleController.text = article.title;
+  
+  final document = _documentFromJson(article.content);
+  contentController = quill.QuillController(
+    document: document,
+    selection: const TextSelection.collapsed(offset: 0),
+    readOnly: isViewMode,  // ✅ ADD THIS
+  );
 
-    // Re-attach listener after creating new controller
-    contentController.addListener(() {
-      rebuildTocFromContent();
-      tocVersion.value++;
-    });
-
+  contentController.addListener(() {
     rebuildTocFromContent();
+    tocVersion.value++;
+  });
 
-    originalContent = article.content;
-    originalTitle = article.title;
-  }
+  rebuildTocFromContent();
+
+  originalContent = article.content;
+  originalTitle = article.title;
+}
 
   void openArticleByTitle(String title, Function refreshUI) async {
     if (articles.isEmpty) return;
@@ -355,10 +342,6 @@ class WorkspaceController {
     originalTitle = titleController.text;
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // TABLE OF CONTENTS - IMPROVED
-  // ═══════════════════════════════════════════════════════════
-
   void rebuildTocFromContent() {
     tocEntries.clear();
     
@@ -369,7 +352,6 @@ class WorkspaceController {
     for (final node in doc.root.children) {
       final style = node.style.attributes['header'];
       
-      // Support both h1 and h2 headings
       if (style != null && (style.value == 1 || style.value == 2)) {
         final text = node.toPlainText().trim();
         if (text.isNotEmpty) {
@@ -390,20 +372,17 @@ class WorkspaceController {
     }
   }
 
-  /// Scroll to a specific heading by its ID
   void scrollToHeading(String id, ScrollController scrollController) {
     final entry = tocEntries.firstWhere(
       (e) => e.id == id,
       orElse: () => tocEntries.first,
     );
 
-    // Update cursor position
     contentController.updateSelection(
       TextSelection.collapsed(offset: entry.textOffset),
       quill.ChangeSource.local,
     );
 
-    // Scroll to the position
     if (scrollController.hasClients) {
       final totalLength = contentController.document.length;
       final ratio = entry.textOffset / totalLength;
@@ -416,10 +395,6 @@ class WorkspaceController {
       );
     }
   }
-
-  // ═══════════════════════════════════════════════════════════
-  // INFOBOX BLOCKS
-  // ═══════════════════════════════════════════════════════════
 
   Future<void> _loadInfoboxBlocks(Article article) async {
     final db = await AppDatabase.database;
@@ -469,7 +444,7 @@ class TocEntry {
   final String id;
   final String title;
   final int textOffset;
-  final int level; // 1 for h1, 2 for h2, etc.
+  final int level;
 
   TocEntry({
     required this.id, 

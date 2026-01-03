@@ -50,7 +50,6 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
           spacing: 4,
           runSpacing: 4,
           children: [
-            // Text formatting
             _toggleFormatButton(Icons.format_bold, 'Bold', quill.Attribute.bold),
             _toggleFormatButton(Icons.format_italic, 'Italic', quill.Attribute.italic),
             _toggleFormatButton(Icons.format_underlined, 'Underline', quill.Attribute.underline),
@@ -58,18 +57,15 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
             
             _divider(),
             
-            // Superscript & Subscript
-            _scriptButton(Icons.superscript, 'Superscript', 'super'),
-            _scriptButton(Icons.subscript, 'Subscript', 'sub'),
+            _scriptButton(Icons.superscript, 'Superscript', quill.Attribute.superscript),
+            _scriptButton(Icons.subscript, 'Subscript', quill.Attribute.subscript),
             
             _divider(),
             
-            // Heading
             _formatButton(Icons.title, 'Heading', quill.Attribute.h2),
             
             _divider(),
             
-            // Alignment
             _alignButton(Icons.format_align_left, 'Align Left', quill.Attribute.leftAlignment),
             _alignButton(Icons.format_align_center, 'Align Center', quill.Attribute.centerAlignment),
             _alignButton(Icons.format_align_right, 'Align Right', quill.Attribute.rightAlignment),
@@ -77,7 +73,6 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
             
             _divider(),
             
-            // Links & Flags
             _customButton(Icons.link, 'Link', widget.onLink),
             _customButton(Icons.flag, 'Flag', widget.onOpenFlagMenu),
           ],
@@ -111,14 +106,14 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
     );
   }
 
-  Widget _scriptButton(IconData icon, String tooltip, String scriptType) {
+  Widget _scriptButton(IconData icon, String tooltip, quill.Attribute attribute) {
     final selection = widget.controller.selection;
     bool isActive = false;
     
     if (!selection.isCollapsed) {
       final styles = widget.controller.getSelectionStyle();
       final script = styles.attributes[quill.Attribute.script.key];
-      isActive = script != null && script.value == scriptType;
+      isActive = script != null && script.value == attribute.value;
     }
     
     return IconButton(
@@ -133,18 +128,11 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
         if (selection.isCollapsed) return;
         
         if (isActive) {
-          // Remove script formatting
           widget.controller.formatSelection(
             quill.Attribute.clone(quill.Attribute.script, null),
           );
         } else {
-          // Apply script formatting
-          widget.controller.formatSelection(
-            quill.Attribute.fromKeyValue(
-              quill.Attribute.script.key,
-              scriptType,
-            ),
-          );
+          widget.controller.formatSelection(attribute);
         }
       },
       padding: const EdgeInsets.all(4),
@@ -161,7 +149,6 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
       final align = styles.attributes[quill.Attribute.align.key];
       isActive = align != null && align.value == attribute.value;
     } else {
-      // Check the line style for block-level attributes
       final line = widget.controller.document.queryChild(selection.baseOffset).node;
       if (line != null) {
         final align = line.style.attributes[quill.Attribute.align.key];
@@ -180,12 +167,10 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
         final selection = widget.controller.selection;
         
         if (isActive) {
-          // Remove alignment
           widget.controller.formatSelection(
             quill.Attribute.clone(quill.Attribute.align, null),
           );
         } else {
-          // Apply alignment
           widget.controller.formatSelection(attribute);
         }
       },

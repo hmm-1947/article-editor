@@ -612,18 +612,19 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                         ),
                         const Spacer(),
                         IconButton(
-                          icon: const Icon(Icons.add, color: Colors.white),
-                          tooltip: "Add new flag",
-                          onPressed: () async {
-                            await _showAddFlagDialog();
-                            final refreshed = await FlagsFeature.loadAllFlags();
-                            setLocalState(() {
-                              allFlags
-                                ..clear()
-                                ..addAll(refreshed);
-                            });
-                          },
-                        ),
+  tooltip: controller.isViewMode ? "Edit mode" : "Preview mode",
+  icon: Icon(
+    controller.isViewMode ? Icons.edit_note : Icons.preview,
+    color: Colors.white,
+  ),
+  onPressed: () {
+    setState(() {
+      controller.isViewMode = !controller.isViewMode;
+      // ✅ SET THE CONTROLLER'S READONLY PROPERTY
+      controller.contentController.readOnly = controller.isViewMode;
+    });
+  },
+),
                       ],
                     ),
                     TextField(
@@ -1993,11 +1994,10 @@ void _scrollToHeading(String id) {
   controller.scrollToHeading(id, articleScrollController);
   
   // Optional: Show a brief highlight or feedback
+  final entry = controller.tocEntries.firstWhere((e) => e.id == id);
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
-      content: Text('Jumped to: ${_cleanTocTitle(
-        controller.tocEntries.firstWhere((e) => e.id == id).title
-      )}'),
+      content: Text('Jumped to: ${_cleanTocTitle(entry.title)}'),
       duration: const Duration(milliseconds: 800),
       behavior: SnackBarBehavior.floating,
       margin: const EdgeInsets.only(bottom: 60, left: 20, right: 20),

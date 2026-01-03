@@ -2,27 +2,51 @@ import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'package:arted/widgets/flag_embed.dart';
 
-class ArticleEditor extends StatelessWidget {
+class ArticleEditor extends StatefulWidget {
   final quill.QuillController controller;
   final ScrollController scrollController;
   final FocusNode focusNode;
-  final Function(String)? onLinkTap;
   final bool isViewMode;
+  final Function(String)? onLinkTap;
 
   const ArticleEditor({
     super.key,
     required this.controller,
     required this.scrollController,
     required this.focusNode,
+    required this.isViewMode,
     this.onLinkTap,
-    this.isViewMode = false,
   });
 
   @override
+  State<ArticleEditor> createState() => _ArticleEditorState();
+}
+
+class _ArticleEditorState extends State<ArticleEditor> {
+  late FocusNode _disabledFocusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    // Create a FocusNode that can never receive focus
+    _disabledFocusNode = FocusNode(canRequestFocus: false);
+  }
+
+  @override
+  void dispose() {
+    _disabledFocusNode.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // Set readOnly on controller
+    widget.controller.readOnly = widget.isViewMode;
+
     return quill.QuillEditor.basic(
-      controller: controller,
-      focusNode: isViewMode ? FocusNode() : focusNode,
+      controller: widget.controller,
+      // ✅ Use disabled focus node in view mode
+      focusNode: widget.isViewMode ? _disabledFocusNode : widget.focusNode,
       config: quill.QuillEditorConfig(
         scrollable: true,
         autoFocus: false,
@@ -33,9 +57,8 @@ class ArticleEditor extends StatelessWidget {
           FlagEmbedBuilder(),
         ],
         onLaunchUrl: (url) async {
-          // Handle link clicks - navigate to article
-          if (onLinkTap != null) {
-            onLinkTap!(url);
+          if (widget.onLinkTap != null) {
+            widget.onLinkTap!(url);
           }
         },
         customStyles: quill.DefaultStyles(
@@ -92,15 +115,29 @@ class ArticleEditor extends StatelessWidget {
           ),
           bold: const TextStyle(
             fontWeight: FontWeight.bold,
+            color: Colors.white,
           ),
           italic: const TextStyle(
             fontStyle: FontStyle.italic,
+            color: Colors.white,
           ),
           underline: const TextStyle(
             decoration: TextDecoration.underline,
+            color: Colors.white,
           ),
           strikeThrough: const TextStyle(
             decoration: TextDecoration.lineThrough,
+            color: Colors.white,
+          ),
+          superscript: const TextStyle(
+            color: Colors.white,
+            fontSize: 10,
+            fontFeatures: [FontFeature.superscripts()],
+          ),
+          subscript: const TextStyle(
+            color: Colors.white,
+            fontSize: 10,
+            fontFeatures: [FontFeature.subscripts()],
           ),
         ),
       ),
