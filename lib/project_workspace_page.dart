@@ -2,8 +2,6 @@ import 'package:arted/app_database.dart';
 import 'package:arted/flags.dart';
 import 'package:arted/models/articles.dart';
 import 'package:arted/widgets/article_editor.dart';
-import 'package:arted/widgets/article_viewer.dart';
-import 'package:arted/widgets/editor_toolbar.dart';
 import 'package:flutter/material.dart';
 import 'dashboard_page.dart';
 import 'infobox_panel.dart';
@@ -98,29 +96,24 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
   String _cleanTocTitle(String raw) {
     String text = raw;
 
-    // markdown styles
     text = text.replaceAllMapped(RegExp(r'\*\*(.*?)\*\*'), (m) => m.group(1)!);
     text = text.replaceAllMapped(RegExp(r'__(.*?)__'), (m) => m.group(1)!);
     text = text.replaceAllMapped(RegExp(r'~~(.*?)~~'), (m) => m.group(1)!);
     text = text.replaceAllMapped(RegExp(r'_(.*?)_'), (m) => m.group(1)!);
     text = text.replaceAllMapped(RegExp(r'`(.*?)`'), (m) => m.group(1)!);
 
-    // wiki syntax — USE LEFT SIDE (TARGET)
     text = text.replaceAllMapped(
       RegExp(r'\[\[(.*?)\|(.*?)\]\]'),
-      (m) => m.group(1)!, // ← IMPORTANT CHANGE
+      (m) => m.group(1)!,
     );
     text = text.replaceAllMapped(RegExp(r'\[\[(.*?)\]\]'), (m) => m.group(1)!);
     text = text.replaceAllMapped(RegExp(r'\[(.*?)\]'), (m) => m.group(1)!);
 
-    // remove stray pipes
     text = text.replaceAll('|', '');
 
-    // normalize spacing
     return text.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
-  /// ------------- CATEGORY DELETE -------------
   void _confirmDeleteCategory(String category) {
     if (category == "Uncategorized") return;
 
@@ -191,6 +184,11 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
   }
 
   Future<void> _switchArticleSafely(Article target) async {
+    if (controller.selectedArticle == target) {
+      print('Already viewing article: ${target.title}');
+      return;
+    }
+
     final canSwitch = await controller.requestArticleSwitch(target, () async {
       if (controller.hasUnsavedChanges) {
         await controller.saveArticle(widget.project.id, _refreshUI);
@@ -198,8 +196,34 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
     });
 
     if (canSwitch) {
+      if (!controller.openTabs.contains(target)) {
+        controller.openTabs.add(target);
+        _cachedTabWidths = null;
+      }
+
       controller.selectedArticle = target;
       setState(() {});
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!tabScrollController.hasClients) return;
+
+        final index = controller.openTabs.indexOf(target);
+        if (index >= 0) {
+          final avgTabWidth = 150.0;
+          final targetScroll = index * avgTabWidth;
+
+          tabScrollController.animateTo(
+            targetScroll.clamp(
+              0.0,
+              tabScrollController.position.maxScrollExtent,
+            ),
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+
+      print('Switched to article: ${target.title}');
       return;
     }
 
@@ -242,6 +266,7 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
 
     if (!controller.openTabs.contains(target)) {
       controller.openTabs.add(target);
+      _cachedTabWidths = null;
     }
 
     setState(() {});
@@ -256,7 +281,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
     });
   }
 
-  /// ------------- ARTICLE DELETE -------------
   void _confirmDeleteArticle(Article article) {
     showDialog(
       context: context,
@@ -388,7 +412,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
     );
   }
 
-  /// ------------- NEW CATEGORY -------------
   void _showAddCategoryDialog() {
     final catCtrl = TextEditingController();
 
@@ -504,7 +527,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
       onFlagSelected: (code) {
         final index = controller.contentController.selection.baseOffset;
 
-        // Insert the flag embed data directly
         final embed = {'flag': code};
 
         controller.contentController.document.insert(
@@ -521,28 +543,39 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
   }
 
   void _insertLinkIntoQuill(String targetTitle) {
-  final selection = controller.contentController.selection;
-  final index = selection.baseOffset;
-  final length = selection.extentOffset - selection.baseOffset;
+    final selection = controller.contentController.selection;
+    final index = selection.baseOffset;
+    final length = selection.extentOffset - selection.baseOffset;
 
-  if (length > 0) {
-    // Text is selected - apply link to selection
-    controller.contentController.formatText(
-      index,
-      length,
-      quill.LinkAttribute(targetTitle),
-    );
-  } else {
-    // No selection - insert link with title as text
-    controller.contentController.document.insert(index, targetTitle);
-    controller.contentController.formatText(
-      index,
-      targetTitle.length,
-      quill.LinkAttribute(targetTitle),
-    );
+    // Just store the article title - we'll handle it ourselves
+    final linkUrl = targetTitle;
+
+    if (length > 0) {
+      // Text is selected - apply link to selection
+      controller.contentController.formatText(
+        index,
+        length,
+        quill.LinkAttribute(linkUrl),
+      );
+    } else {
+      // No selection - insert title as text
+      controller.contentController.document.insert(index, targetTitle);
+      controller.contentController.formatText(
+        index,
+        targetTitle.length,
+        quill.LinkAttribute(linkUrl),
+      );
+
+      controller.contentController.updateSelection(
+        TextSelection.collapsed(offset: index + targetTitle.length),
+        quill.ChangeSource.local,
+      );
+    }
+
+    controller.markInfoboxDirty();
+    setState(() {});
   }
-}
-  
+
   void _showFlagPickerForController(
     TextEditingController? targetController, {
     Function(String code)? onFlagSelected,
@@ -736,7 +769,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
     );
   }
 
-  /// ------------- NEW ARTICLE -------------
   void _showNewArticleDialog() {
     final titleCtrl = TextEditingController();
     String category = controller.categories.first;
@@ -816,7 +848,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
     );
   }
 
-  /// ------------- NAVIGATION -------------
   void _onHomePressed() {
     if (!controller.hasUnsavedChanges) {
       _goDashboard();
@@ -869,7 +900,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
     );
   }
 
-  /// ------------- TAB CLOSE -------------
   void _closeTab(Article article) {
     controller.openTabs.remove(article);
 
@@ -884,7 +914,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
     _refreshUI();
   }
 
-  /// ------------- UI -------------
   @override
   Widget build(BuildContext context) {
     final groupedArticles = _groupedArticles;
@@ -1067,7 +1096,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
     );
   }
 
-  /// ------------- UI SECTIONS -------------
   Widget _buildTabBar() {
     return Container(
       height: 56,
@@ -1779,17 +1807,23 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                   controller: controller.contentController,
                   scrollController: articleScrollController,
                   focusNode: _editorFocusNode,
-                  onLinkTap: (title) {
-                    // Find article by title
+                  isViewMode: controller.isViewMode,
+                  onLinkTap: (url) {
+                    // Strip any URL crap Quill adds
+                    String title = url
+                        .replaceAll(RegExp(r'^https?://'), '')
+                        .replaceAll('%20', ' ')
+                        .trim();
+
+                    // Just open the damn article
                     final target = controller.articles
-                        .where((a) => a.title == title)
+                        .where((a) => a.title.toLowerCase() == title.toLowerCase())
                         .cast<Article?>()
                         .firstOrNull;
 
                     if (target != null) {
                       _switchArticleSafely(target);
                     } else {
-                      // Show error if article not found
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text('Article "$title" not found'),
@@ -1807,145 +1841,169 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
     );
   }
 
-  Widget _buildTocPanel() {
-    return Padding(
-      padding: const EdgeInsets.all(8),
-      child: Container(
-        width: 220,
-        decoration: BoxDecoration(
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.35),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+  
+Widget _buildTocPanel() {
+  return Padding(
+    padding: const EdgeInsets.all(8),
+    child: Container(
+      width: 220,
+      decoration: BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.35),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        color: panel,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withOpacity(0.08), width: 1),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            LayoutBuilder(
+              builder: (context, constraints) {
+                if (constraints.maxWidth < 80) {
+                  return const SizedBox();
+                }
+
+                return Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        "Contents",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => setState(() => showToc = false),
+                      child: const SizedBox(
+                        width: 32,
+                        height: 32,
+                        child: Icon(
+                          Icons.chevron_left,
+                          size: 20,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
-          ],
-          color: panel,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withOpacity(0.08), width: 1),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  if (constraints.maxWidth < 80) {
-                    return const SizedBox();
-                  }
-
-                  return Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          "Contents",
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-
-                      GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () => setState(() => showToc = false),
-                        child: const SizedBox(
-                          width: 32,
-                          height: 32,
-                          child: Icon(
-                            Icons.chevron_left,
-                            size: 20,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-
-              const SizedBox(height: 12),
-
+            const SizedBox(height: 12),
+            
+            // Show message if no headings
+            if (controller.tocEntries.isEmpty)
+              const Expanded(
+                child: Center(
+                  child: Text(
+                    "No headings yet.\nAdd headings to see them here.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.grey,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              )
+            else
               Expanded(
-                child: ListView.builder(
-                  itemCount: controller.tocEntries.length,
-                  itemBuilder: (context, index) {
-                    final entry = controller.tocEntries[index];
-
-                    return InkWell(
-                      borderRadius: BorderRadius.circular(6),
-                      onTap: () => _scrollToHeading(entry.id),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 6,
-                          horizontal: 4,
-                        ),
-                        child: Text(
-                          _cleanTocTitle(entry.title),
-                          style: const TextStyle(
-                            color: Colors.grey,
-                            fontSize: 13,
+                child: ValueListenableBuilder<int>(
+                  valueListenable: controller.tocVersion,
+                  builder: (context, version, child) {
+                    return ListView.builder(
+                      itemCount: controller.tocEntries.length,
+                      itemBuilder: (context, index) {
+                        final entry = controller.tocEntries[index];
+                        
+                        // Clean the title for display
+                        final cleanTitle = _cleanTocTitle(entry.title);
+                        
+                        // Add indentation for different heading levels
+                        final indent = (entry.level - 1) * 12.0;
+                        
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(6),
+                          onTap: () => _scrollToHeading(entry.id),
+                          child: Container(
+                            padding: EdgeInsets.only(
+                              left: 4 + indent,
+                              right: 4,
+                              top: 6,
+                              bottom: 6,
+                            ),
+                            child: Row(
+                              children: [
+                                // Level indicator dot
+                                Container(
+                                  width: 4,
+                                  height: 4,
+                                  margin: const EdgeInsets.only(right: 8),
+                                  decoration: BoxDecoration(
+                                    color: entry.level == 1 
+                                        ? Colors.blue
+                                        : Colors.grey,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    cleanTitle,
+                                    style: TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: entry.level == 1 ? 13 : 12,
+                                      fontWeight: entry.level == 1 
+                                          ? FontWeight.w600
+                                          : FontWeight.normal,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ),
+                        );
+                      },
                     );
                   },
                 ),
               ),
-            ],
-          ),
+          ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
-  void _scrollToHeading(String id) {
-    final entry = controller.tocEntries.firstWhere((e) => e.id == id);
 
-    // Find the heading in the document
-    final doc = controller.contentController.document;
-    int currentOffset = 0;
-
-    for (final node in doc.root.children) {
-      final style = node.style.attributes['header'];
-
-      if (style != null && style.value == 2) {
-        final text = node.toPlainText().trim();
-        if (text == entry.title) {
-          // Found the heading - scroll to it
-          controller.contentController.updateSelection(
-            TextSelection.collapsed(offset: currentOffset),
-            quill.ChangeSource.local,
-          );
-
-          // Scroll the view
-          if (articleScrollController.hasClients) {
-            final ratio =
-                currentOffset / controller.contentController.document.length;
-            final targetScroll =
-                ratio * articleScrollController.position.maxScrollExtent;
-
-            articleScrollController.animateTo(
-              targetScroll.clamp(
-                0.0,
-                articleScrollController.position.maxScrollExtent,
-              ),
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-            );
-          }
-          break;
-        }
-      }
-
-      currentOffset += node.length;
-    }
-  }
+void _scrollToHeading(String id) {
+  controller.scrollToHeading(id, articleScrollController);
+  
+  // Optional: Show a brief highlight or feedback
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text('Jumped to: ${_cleanTocTitle(
+        controller.tocEntries.firstWhere((e) => e.id == id).title
+      )}'),
+      duration: const Duration(milliseconds: 800),
+      behavior: SnackBarBehavior.floating,
+      margin: const EdgeInsets.only(bottom: 60, left: 20, right: 20),
+    ),
+  );
+}
 
   Widget _edgeHandle({
     required bool visible,

@@ -7,8 +7,6 @@ import 'package:flutter_quill/flutter_quill.dart' as quill;
 
 class WorkspaceController {
   final TextEditingController titleController = TextEditingController();
-  
-  // CHANGED: QuillController instead of TextEditingController
   late quill.QuillController contentController;
   
   final List<TocEntry> tocEntries = [];
@@ -25,11 +23,11 @@ class WorkspaceController {
   
   final ValueNotifier<Article?> hoveredArticle = ValueNotifier(null);
   final ValueNotifier<String?> hoveredCategory = ValueNotifier(null);
+  final ValueNotifier<int> tocVersion = ValueNotifier(0); // For TOC updates
 
   DateTime? lastSaved;
 
   WorkspaceController() {
-    // Initialize with empty document
     contentController = quill.QuillController.basic();
   }
 
@@ -44,11 +42,14 @@ class WorkspaceController {
     contentController.dispose();
     hoveredArticle.dispose();
     hoveredCategory.dispose();
+    tocVersion.dispose();
   }
 
   void initialize(Function refreshUI, String projectId) {
+    // Listen to content changes and rebuild TOC
     contentController.addListener(() {
       rebuildTocFromContent();
+      tocVersion.value++; // Notify TOC listeners
     });
 
     _loadCategories(refreshUI, projectId).then((_) {
@@ -80,12 +81,10 @@ class WorkspaceController {
     for (int i = 0; i < lines.length; i++) {
       final line = lines[i];
       
-      // Handle alignment directives
       if (line.startsWith('[align:')) {
-        continue; // Skip - we'll implement alignment later if needed
+        continue;
       }
       
-      // Handle headings
       if (line.startsWith('## ')) {
         final text = _stripHeadingId(line.substring(3).trim());
         operations.add({'insert': text});
@@ -93,12 +92,10 @@ class WorkspaceController {
         continue;
       }
       
-      // Handle regular lines with inline formatting
       if (line.isNotEmpty) {
         _processInlineFormatting(operations, line);
       }
       
-      // Add newline (except for last line if empty)
       if (i < lines.length - 1 || line.isNotEmpty) {
         operations.add({'insert': '\n'});
       }
@@ -108,12 +105,10 @@ class WorkspaceController {
   }
 
   static String _stripHeadingId(String text) {
-    // Remove {#id} markers from headings
     return text.replaceAll(RegExp(r'\{#.*?\}'), '').trim();
   }
 
   static void _processInlineFormatting(List<Map<String, dynamic>> operations, String line) {
-    // Regex to match formatting markers
     final regex = RegExp(
       r'(\*\*.*?\*\*|__.*?__|~~.*?~~|\^.*?\^|~(?!~).*?~|_.*?_|\[\[.*?\]\]|\[flag:[A-Z0-9]{2,3}\])',
     );
@@ -121,7 +116,6 @@ class WorkspaceController {
     int lastIndex = 0;
 
     for (final match in regex.allMatches(line)) {
-      // Add plain text before match
       if (match.start > lastIndex) {
         operations.add({'insert': line.substring(lastIndex, match.start)});
       }
@@ -153,14 +147,12 @@ class WorkspaceController {
         final linkTarget = parts.length > 1 ? parts.last : parts.first;
         operations.add({'insert': displayText, 'attributes': {'link': linkTarget}});
       } else if (token.startsWith('[flag:')) {
-        // Preserve flag markers as-is
         operations.add({'insert': token});
       }
 
       lastIndex = match.end;
     }
 
-    // Add remaining text
     if (lastIndex < line.length) {
       operations.add({'insert': line.substring(lastIndex)});
     }
@@ -180,7 +172,6 @@ class WorkspaceController {
     }
     
     try {
-      // Try to parse as JSON (new format)
       final decoded = jsonDecode(json);
       if (decoded is List) {
         return quill.Document.fromJson(decoded);
@@ -189,7 +180,6 @@ class WorkspaceController {
       // Not JSON - treat as markdown
     }
     
-    // Fall back to markdown conversion
     final operations = _markdownToDelta(json);
     return quill.Document.fromJson(operations);
   }
@@ -261,14 +251,18 @@ class WorkspaceController {
   void _loadArticle(Article article) {
     titleController.text = article.title;
     
-    // Load content as Document
     final document = _documentFromJson(article.content);
     contentController = quill.QuillController(
       document: document,
       selection: const TextSelection.collapsed(offset: 0),
     );
 
-    // Rebuild TOC
+    // Re-attach listener after creating new controller
+    contentController.addListener(() {
+      rebuildTocFromContent();
+      tocVersion.value++;
+    });
+
     rebuildTocFromContent();
 
     originalContent = article.content;
@@ -362,7 +356,7 @@ class WorkspaceController {
   }
 
   // ═══════════════════════════════════════════════════════════
-  // TABLE OF CONTENTS
+  // TABLE OF CONTENTS - IMPROVED
   // ═══════════════════════════════════════════════════════════
 
   void rebuildTocFromContent() {
@@ -375,18 +369,51 @@ class WorkspaceController {
     for (final node in doc.root.children) {
       final style = node.style.attributes['header'];
       
-      if (style != null && style.value == 2) {
+      // Support both h1 and h2 headings
+      if (style != null && (style.value == 1 || style.value == 2)) {
         final text = node.toPlainText().trim();
         if (text.isNotEmpty) {
           final id = 'h_$headingIndex';
           tocEntries.add(
-            TocEntry(id: id, title: text, textOffset: charOffset),
+            TocEntry(
+              id: id, 
+              title: text, 
+              textOffset: charOffset,
+              level: style.value as int,
+            ),
           );
           headingIndex++;
         }
       }
       
       charOffset += node.length;
+    }
+  }
+
+  /// Scroll to a specific heading by its ID
+  void scrollToHeading(String id, ScrollController scrollController) {
+    final entry = tocEntries.firstWhere(
+      (e) => e.id == id,
+      orElse: () => tocEntries.first,
+    );
+
+    // Update cursor position
+    contentController.updateSelection(
+      TextSelection.collapsed(offset: entry.textOffset),
+      quill.ChangeSource.local,
+    );
+
+    // Scroll to the position
+    if (scrollController.hasClients) {
+      final totalLength = contentController.document.length;
+      final ratio = entry.textOffset / totalLength;
+      final targetScroll = ratio * scrollController.position.maxScrollExtent;
+
+      scrollController.animateTo(
+        targetScroll.clamp(0.0, scrollController.position.maxScrollExtent),
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
     }
   }
 
@@ -442,6 +469,12 @@ class TocEntry {
   final String id;
   final String title;
   final int textOffset;
+  final int level; // 1 for h1, 2 for h2, etc.
 
-  TocEntry({required this.id, required this.title, required this.textOffset});
+  TocEntry({
+    required this.id, 
+    required this.title, 
+    required this.textOffset,
+    this.level = 2,
+  });
 }

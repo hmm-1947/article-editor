@@ -44,20 +44,44 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
         color: widget.panelColor,
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Wrap(
-        spacing: 4,
-        runSpacing: 4,
-        children: [
-          _toggleFormatButton(Icons.format_bold, 'Bold', quill.Attribute.bold),
-          _toggleFormatButton(Icons.format_italic, 'Italic', quill.Attribute.italic),
-          _toggleFormatButton(Icons.format_underlined, 'Underline', quill.Attribute.underline),
-          _toggleFormatButton(Icons.format_strikethrough, 'Strikethrough', quill.Attribute.strikeThrough),
-          const SizedBox(width: 8, height: 32, child: VerticalDivider(color: Colors.grey)),
-          _formatButton(Icons.title, 'Heading', quill.Attribute.h2),
-          const SizedBox(width: 8, height: 32, child: VerticalDivider(color: Colors.grey)),
-          _customButton(Icons.link, 'Link', widget.onLink),
-          _customButton(Icons.flag, 'Flag', widget.onOpenFlagMenu),
-        ],
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Wrap(
+          spacing: 4,
+          runSpacing: 4,
+          children: [
+            // Text formatting
+            _toggleFormatButton(Icons.format_bold, 'Bold', quill.Attribute.bold),
+            _toggleFormatButton(Icons.format_italic, 'Italic', quill.Attribute.italic),
+            _toggleFormatButton(Icons.format_underlined, 'Underline', quill.Attribute.underline),
+            _toggleFormatButton(Icons.format_strikethrough, 'Strikethrough', quill.Attribute.strikeThrough),
+            
+            _divider(),
+            
+            // Superscript & Subscript
+            _scriptButton(Icons.superscript, 'Superscript', 'super'),
+            _scriptButton(Icons.subscript, 'Subscript', 'sub'),
+            
+            _divider(),
+            
+            // Heading
+            _formatButton(Icons.title, 'Heading', quill.Attribute.h2),
+            
+            _divider(),
+            
+            // Alignment
+            _alignButton(Icons.format_align_left, 'Align Left', quill.Attribute.leftAlignment),
+            _alignButton(Icons.format_align_center, 'Align Center', quill.Attribute.centerAlignment),
+            _alignButton(Icons.format_align_right, 'Align Right', quill.Attribute.rightAlignment),
+            _alignButton(Icons.format_align_justify, 'Justify', quill.Attribute.justifyAlignment),
+            
+            _divider(),
+            
+            // Links & Flags
+            _customButton(Icons.link, 'Link', widget.onLink),
+            _customButton(Icons.flag, 'Flag', widget.onOpenFlagMenu),
+          ],
+        ),
       ),
     );
   }
@@ -76,10 +100,92 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
         final selection = widget.controller.selection;
         if (selection.isCollapsed) return;
         
-        // Toggle: if active, remove it; if not, apply it
         if (isActive) {
           widget.controller.formatSelection(quill.Attribute.clone(attribute, null));
         } else {
+          widget.controller.formatSelection(attribute);
+        }
+      },
+      padding: const EdgeInsets.all(4),
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+    );
+  }
+
+  Widget _scriptButton(IconData icon, String tooltip, String scriptType) {
+    final selection = widget.controller.selection;
+    bool isActive = false;
+    
+    if (!selection.isCollapsed) {
+      final styles = widget.controller.getSelectionStyle();
+      final script = styles.attributes[quill.Attribute.script.key];
+      isActive = script != null && script.value == scriptType;
+    }
+    
+    return IconButton(
+      icon: Icon(
+        icon,
+        size: 18,
+        color: isActive ? Colors.blue : Colors.white,
+      ),
+      tooltip: tooltip,
+      onPressed: () {
+        final selection = widget.controller.selection;
+        if (selection.isCollapsed) return;
+        
+        if (isActive) {
+          // Remove script formatting
+          widget.controller.formatSelection(
+            quill.Attribute.clone(quill.Attribute.script, null),
+          );
+        } else {
+          // Apply script formatting
+          widget.controller.formatSelection(
+            quill.Attribute.fromKeyValue(
+              quill.Attribute.script.key,
+              scriptType,
+            ),
+          );
+        }
+      },
+      padding: const EdgeInsets.all(4),
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+    );
+  }
+
+  Widget _alignButton(IconData icon, String tooltip, quill.Attribute attribute) {
+    final selection = widget.controller.selection;
+    bool isActive = false;
+    
+    if (!selection.isCollapsed) {
+      final styles = widget.controller.getSelectionStyle();
+      final align = styles.attributes[quill.Attribute.align.key];
+      isActive = align != null && align.value == attribute.value;
+    } else {
+      // Check the line style for block-level attributes
+      final line = widget.controller.document.queryChild(selection.baseOffset).node;
+      if (line != null) {
+        final align = line.style.attributes[quill.Attribute.align.key];
+        isActive = align != null && align.value == attribute.value;
+      }
+    }
+    
+    return IconButton(
+      icon: Icon(
+        icon,
+        size: 18,
+        color: isActive ? Colors.blue : Colors.white,
+      ),
+      tooltip: tooltip,
+      onPressed: () {
+        final selection = widget.controller.selection;
+        
+        if (isActive) {
+          // Remove alignment
+          widget.controller.formatSelection(
+            quill.Attribute.clone(quill.Attribute.align, null),
+          );
+        } else {
+          // Apply alignment
           widget.controller.formatSelection(attribute);
         }
       },
@@ -94,7 +200,6 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
     
     final styles = widget.controller.getSelectionStyle();
     
-    // Check if the attribute exists and is not null
     return styles.attributes.containsKey(attribute.key) &&
            styles.attributes[attribute.key]?.value != null;
   }
@@ -118,6 +223,14 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
       onPressed: onPressed,
       padding: const EdgeInsets.all(4),
       constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+    );
+  }
+
+  Widget _divider() {
+    return const SizedBox(
+      width: 8, 
+      height: 32, 
+      child: VerticalDivider(color: Colors.grey, thickness: 1),
     );
   }
 }

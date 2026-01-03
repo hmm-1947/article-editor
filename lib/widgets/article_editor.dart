@@ -6,21 +6,23 @@ class ArticleEditor extends StatelessWidget {
   final quill.QuillController controller;
   final ScrollController scrollController;
   final FocusNode focusNode;
-  final Function(String)? onLinkTap; // ADD THIS
+  final Function(String)? onLinkTap;
+  final bool isViewMode;
 
   const ArticleEditor({
     super.key,
     required this.controller,
     required this.scrollController,
     required this.focusNode,
-    this.onLinkTap, // ADD THIS
+    this.onLinkTap,
+    this.isViewMode = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return quill.QuillEditor.basic(
       controller: controller,
-      focusNode: focusNode,
+      focusNode: isViewMode ? FocusNode() : focusNode,
       config: quill.QuillEditorConfig(
         scrollable: true,
         autoFocus: false,
@@ -30,7 +32,8 @@ class ArticleEditor extends StatelessWidget {
         embedBuilders: [
           FlagEmbedBuilder(),
         ],
-        onLaunchUrl: (url) async { // ADD THIS
+        onLaunchUrl: (url) async {
+          // Handle link clicks - navigate to article
           if (onLinkTap != null) {
             onLinkTap!(url);
           }
