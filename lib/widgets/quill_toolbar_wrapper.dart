@@ -62,7 +62,7 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
             
             _divider(),
             
-            _formatButton(Icons.title, 'Heading', quill.Attribute.h2),
+            _headingButton(Icons.title, 'Heading'),
             
             _divider(),
             
@@ -189,17 +189,45 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
            styles.attributes[attribute.key]?.value != null;
   }
 
-  Widget _formatButton(IconData icon, String tooltip, quill.Attribute attribute) {
-    return IconButton(
-      icon: Icon(icon, size: 18, color: Colors.white),
-      tooltip: tooltip,
-      onPressed: () {
-        widget.controller.formatSelection(attribute);
-      },
-      padding: const EdgeInsets.all(4),
-      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-    );
+  Widget _headingButton(IconData icon, String tooltip) {
+  final selection = widget.controller.selection;
+  bool isHeading = false;
+  
+  if (!selection.isCollapsed) {
+    final styles = widget.controller.getSelectionStyle();
+    final header = styles.attributes[quill.Attribute.header.key];
+    isHeading = header != null && header.value != null;
+  } else {
+    // Check the current line
+    final line = widget.controller.document.queryChild(selection.baseOffset).node;
+    if (line != null) {
+      final header = line.style.attributes[quill.Attribute.header.key];
+      isHeading = header != null && header.value != null;
+    }
   }
+  
+  return IconButton(
+    icon: Icon(
+      icon,
+      size: 18,
+      color: isHeading ? Colors.blue : Colors.white,
+    ),
+    tooltip: tooltip,
+    onPressed: () {
+      if (isHeading) {
+        // Remove heading - set to null
+        widget.controller.formatSelection(
+          quill.Attribute.clone(quill.Attribute.header, null),
+        );
+      } else {
+        // Apply heading
+        widget.controller.formatSelection(quill.Attribute.h2);
+      }
+    },
+    padding: const EdgeInsets.all(4),
+    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+  );
+}
 
   Widget _customButton(IconData icon, String tooltip, VoidCallback onPressed) {
     return IconButton(

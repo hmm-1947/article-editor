@@ -6,6 +6,7 @@ import 'package:arted/app_database.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 
 class WorkspaceController {
+  
   final TextEditingController titleController = TextEditingController();
   late quill.QuillController contentController;
   
@@ -28,7 +29,14 @@ class WorkspaceController {
   DateTime? lastSaved;
 
   WorkspaceController() {
+    // ✅ Create controller once in constructor
     contentController = quill.QuillController.basic();
+    
+    // ✅ Add listener once
+    contentController.addListener(() {
+      rebuildTocFromContent();
+      tocVersion.value++;
+    });
   }
 
   String generateHeadingId() => _generateHeadingId();
@@ -39,18 +47,14 @@ class WorkspaceController {
 
   void dispose() {
     titleController.dispose();
-    contentController.dispose();
+    contentController.dispose(); // ✅ Only dispose once at the very end
     hoveredArticle.dispose();
     hoveredCategory.dispose();
     tocVersion.dispose();
   }
 
   void initialize(Function refreshUI, String projectId) {
-    contentController.addListener(() {
-      rebuildTocFromContent();
-      tocVersion.value++;
-    });
-
+    // Listener is already added in constructor
     _loadCategories(refreshUI, projectId).then((_) {
       _loadArticles(refreshUI, projectId);
     });
@@ -239,18 +243,20 @@ class WorkspaceController {
   titleController.text = article.title;
   
   final document = _documentFromJson(article.content);
-  contentController = quill.QuillController(
-    document: document,
-    selection: const TextSelection.collapsed(offset: 0),
-    readOnly: isViewMode,  // ✅ ADD THIS
+  
+  // ✅ DON'T dispose - just replace the document
+  contentController.document = document;
+  contentController.readOnly = isViewMode;
+  
+  // Reset selection to start
+  contentController.updateSelection(
+    const TextSelection.collapsed(offset: 0),
+    quill.ChangeSource.local,
   );
 
-  contentController.addListener(() {
-    rebuildTocFromContent();
-    tocVersion.value++;
-  });
-
+  // ✅ Build TOC immediately after loading
   rebuildTocFromContent();
+  tocVersion.value++;
 
   originalContent = article.content;
   originalTitle = article.title;
@@ -271,17 +277,24 @@ class WorkspaceController {
   }
 
   Future<bool> requestArticleSwitch(
-    Article target,
-    Future<void> Function() onSave,
-  ) async {
-    if (!hasUnsavedChanges) {
-      _loadArticle(target);
-      await _loadInfoboxBlocks(target);
-      return true;
-    }
-
-    return false;
+  Article target,
+  Future<void> Function() onSave,
+) async {
+  print('📋 requestArticleSwitch: target="${target.title}", current="${selectedArticle?.title}"');
+  
+  // ✅ Don't check if same article - always allow the switch
+  // This fixes first-click issues where the article is "selected" but content isn't loaded
+  
+  if (!hasUnsavedChanges) {
+    print('   No unsaved changes, loading article...');
+    _loadArticle(target);
+    await _loadInfoboxBlocks(target);
+    return true;
   }
+
+  print('   Has unsaved changes, returning false to show dialog');
+  return false;
+}
 
   bool get hasUnsavedChanges {
     if (selectedArticle == null) return false;
@@ -343,17 +356,30 @@ class WorkspaceController {
   }
 
   void rebuildTocFromContent() {
-    tocEntries.clear();
-    
-    final doc = contentController.document;
-    int headingIndex = 0;
-    int charOffset = 0;
+  tocEntries.clear();
+  
+  final doc = contentController.document;
+  int headingIndex = 0;
+  int charOffset = 0;
 
-    for (final node in doc.root.children) {
-      final style = node.style.attributes['header'];
-      
-      if (style != null && (style.value == 1 || style.value == 2)) {
-        final text = node.toPlainText().trim();
+  print('\n=== REBUILDING TOC (DETAILED) ===');
+  print('Total nodes in document: ${doc.root.children.length}');
+
+  for (int i = 0; i < doc.root.children.length; i++) {
+    final node = doc.root.children.elementAt(i);
+    final allAttributes = node.style.attributes;
+    final headerAttr = allAttributes['header'];
+    final text = node.toPlainText().trim();
+    
+    print('Node $i:');
+    print('  Text: "$text"');
+    print('  Header attribute: ${headerAttr?.value}');
+    print('  All attributes: $allAttributes');
+    print('  Node type: ${node.runtimeType}');
+    
+    if (headerAttr != null) {
+      print('  ⭐ HAS HEADER! Value: ${headerAttr.value}');
+      if (headerAttr.value == 1 || headerAttr.value == 2) {
         if (text.isNotEmpty) {
           final id = 'h_$headingIndex';
           tocEntries.add(
@@ -361,40 +387,88 @@ class WorkspaceController {
               id: id, 
               title: text, 
               textOffset: charOffset,
-              level: style.value as int,
+              level: headerAttr.value as int,
             ),
           );
+          print('  ✅ ADDED TO TOC: "$text" (level ${headerAttr.value})');
           headingIndex++;
         }
       }
-      
-      charOffset += node.length;
     }
+    
+    charOffset += node.length;
   }
+  
+  print('TOC FINAL COUNT: ${tocEntries.length} entries');
+  print('===================================\n');
+}
 
   void scrollToHeading(String id, ScrollController scrollController) {
-    final entry = tocEntries.firstWhere(
-      (e) => e.id == id,
-      orElse: () => tocEntries.first,
-    );
+  final entry = tocEntries.firstWhere(
+    (e) => e.id == id,
+    orElse: () => tocEntries.first,
+  );
 
-    contentController.updateSelection(
-      TextSelection.collapsed(offset: entry.textOffset),
-      quill.ChangeSource.local,
-    );
+  print('Scrolling to heading: ${entry.title} at offset ${entry.textOffset}');
 
-    if (scrollController.hasClients) {
-      final totalLength = contentController.document.length;
-      final ratio = entry.textOffset / totalLength;
-      final targetScroll = ratio * scrollController.position.maxScrollExtent;
+  // ✅ Update selection to the heading position
+  contentController.updateSelection(
+    TextSelection.collapsed(offset: entry.textOffset),
+    quill.ChangeSource.local,
+  );
 
-      scrollController.animateTo(
-        targetScroll.clamp(0.0, scrollController.position.maxScrollExtent),
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
+  // ✅ Wait for the next frame to ensure layout is complete
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!scrollController.hasClients) {
+      print('ScrollController has no clients');
+      return;
     }
-  }
+    
+    // ✅ Calculate approximate pixel position
+    final doc = contentController.document;
+    double estimatedHeight = 0.0;
+    
+    // Calculate height up to the heading
+    int currentOffset = 0;
+    for (final node in doc.root.children) {
+      if (currentOffset >= entry.textOffset) break;
+      
+      // Estimate height based on node type
+      final style = node.style.attributes['header'];
+      if (style != null) {
+        // Heading height (with padding)
+        if (style.value == 1) {
+          estimatedHeight += 28 * 1.4 + 24; // fontSize * lineHeight + padding
+        } else if (style.value == 2) {
+          estimatedHeight += 22 * 1.4 + 18; // fontSize * lineHeight + padding
+        } else {
+          estimatedHeight += 18 * 1.4 + 14; // fontSize * lineHeight + padding
+        }
+      } else {
+        // Regular paragraph height - estimate based on text length
+        final textLength = node.toPlainText().length;
+        final lines = (textLength / 80).ceil().clamp(1, 10);
+        estimatedHeight += lines * (14 * 1.6 + 16); // fontSize * lineHeight + padding
+      }
+      
+      currentOffset += node.length;
+    }
+    
+    print('Estimated scroll position: $estimatedHeight');
+    
+    // ✅ Scroll with offset to show heading near top (with 100px margin)
+    final targetScroll = (estimatedHeight - 100).clamp(
+      0.0,
+      scrollController.position.maxScrollExtent,
+    );
+    
+    scrollController.animateTo(
+      targetScroll,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeInOutCubic,
+    );
+  });
+}
 
   Future<void> _loadInfoboxBlocks(Article article) async {
     final db = await AppDatabase.database;

@@ -184,102 +184,112 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
   }
 
   Future<void> _switchArticleSafely(Article target) async {
-    if (controller.selectedArticle == target) {
-      print('Already viewing article: ${target.title}');
-      return;
-    }
-
-    final canSwitch = await controller.requestArticleSwitch(target, () async {
-      if (controller.hasUnsavedChanges) {
-        await controller.saveArticle(widget.project.id, _refreshUI);
-      }
-    });
-
-    if (canSwitch) {
-      if (!controller.openTabs.contains(target)) {
-        controller.openTabs.add(target);
-        _cachedTabWidths = null;
-      }
-
-      controller.selectedArticle = target;
-      setState(() {});
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!tabScrollController.hasClients) return;
-
-        final index = controller.openTabs.indexOf(target);
-        if (index >= 0) {
-          final avgTabWidth = 150.0;
-          final targetScroll = index * avgTabWidth;
-
-          tabScrollController.animateTo(
-            targetScroll.clamp(
-              0.0,
-              tabScrollController.position.maxScrollExtent,
-            ),
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-          );
-        }
-      });
-
-      print('Switched to article: ${target.title}');
-      return;
-    }
-
-    final result = await showDialog<String>(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: panel,
-        title: const Text(
-          "Unsaved Changes",
-          style: TextStyle(color: Colors.white),
-        ),
-        content: const Text(
-          "Save changes before switching?",
-          style: TextStyle(color: Colors.grey),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, "cancel"),
-            child: const Text("Cancel"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, "discard"),
-            child: const Text("Discard"),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, "save"),
-            child: const Text("Save"),
-          ),
-        ],
-      ),
-    );
-
-    if (result == null || result == "cancel") return;
-
-    if (result == "save") {
+  print('🔀 _switchArticleSafely called for: ${target.title}');
+  print('   Current article: ${controller.selectedArticle?.title}');
+  print('   Are they the same object? ${controller.selectedArticle == target}');
+  
+  // ✅ REMOVED THE EARLY RETURN CHECK - always reload to be safe
+  // The old check was causing issues on first load
+  
+  final canSwitch = await controller.requestArticleSwitch(target, () async {
+    if (controller.hasUnsavedChanges) {
       await controller.saveArticle(widget.project.id, _refreshUI);
     }
+  });
 
-    controller.selectedArticle = target;
-
+  if (canSwitch) {
     if (!controller.openTabs.contains(target)) {
       controller.openTabs.add(target);
       _cachedTabWidths = null;
     }
 
-    setState(() {});
+    // ✅ Always load the article content
+    controller.selectedArticle = target;
+    controller.openArticleByTitle(target.title, _refreshUI);
+    
+    print('✅ Article switched and loaded: ${target.title}');
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!tabScrollController.hasClients) return;
-      tabScrollController.animateTo(
-        tabScrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-      );
+
+      final index = controller.openTabs.indexOf(target);
+      if (index >= 0) {
+        final avgTabWidth = 150.0;
+        final targetScroll = index * avgTabWidth;
+
+        tabScrollController.animateTo(
+          targetScroll.clamp(
+            0.0,
+            tabScrollController.position.maxScrollExtent,
+          ),
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
     });
+
+    return;
   }
+
+  // Handle unsaved changes dialog
+  final result = await showDialog<String>(
+    context: context,
+    builder: (_) => AlertDialog(
+      backgroundColor: panel,
+      title: const Text(
+        "Unsaved Changes",
+        style: TextStyle(color: Colors.white),
+      ),
+      content: const Text(
+        "Save changes before switching?",
+        style: TextStyle(color: Colors.grey),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, "cancel"),
+          child: const Text("Cancel"),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, "discard"),
+          child: const Text("Discard"),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, "save"),
+          child: const Text("Save"),
+        ),
+      ],
+    ),
+  );
+
+  if (result == null || result == "cancel") return;
+
+  if (result == "save") {
+    await controller.saveArticle(widget.project.id, _refreshUI);
+  }
+
+  controller.selectedArticle = target;
+
+  if (!controller.openTabs.contains(target)) {
+    controller.openTabs.add(target);
+    _cachedTabWidths = null;
+  }
+
+  // ✅ Always load the article content
+  controller.openArticleByTitle(target.title, _refreshUI);
+  
+  print('✅ Article switched after save dialog: ${target.title}');
+
+  setState(() {});
+
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!tabScrollController.hasClients) return;
+    tabScrollController.animateTo(
+      tabScrollController.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+    );
+  });
+}
 
   void _confirmDeleteArticle(Article article) {
     showDialog(
@@ -1804,37 +1814,46 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
               const SizedBox(height: 12),
 
               Expanded(
-                child: ArticleEditor(
-                  controller: controller.contentController,
-                  scrollController: articleScrollController,
-                  focusNode: _editorFocusNode,
-                  isViewMode: controller.isViewMode,
-                  onLinkTap: (url) {
-                    // Strip any URL crap Quill adds
-                    String title = url
-                        .replaceAll(RegExp(r'^https?://'), '')
-                        .replaceAll('%20', ' ')
-                        .trim();
+  child: ArticleEditor(
+    controller: controller.contentController,
+    scrollController: articleScrollController,
+    focusNode: _editorFocusNode,
+    isViewMode: controller.isViewMode,
+    onLinkTap: (url) {
+      print('🔗 Link tapped: $url');
+      
+      // Strip any URL crap Quill adds
+      String title = url
+          .replaceAll(RegExp(r'^https?://'), '')
+          .replaceAll('%20', ' ')
+          .trim();
 
-                    // Just open the damn article
-                    final target = controller.articles
-                        .where((a) => a.title.toLowerCase() == title.toLowerCase())
-                        .cast<Article?>()
-                        .firstOrNull;
+      print('🔍 Looking for article: $title');
 
-                    if (target != null) {
-                      _switchArticleSafely(target);
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Article "$title" not found'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    }
-                  },
-                ),
-              ),
+      // Just open the damn article
+      final target = controller.articles
+          .where((a) => a.title.toLowerCase() == title.toLowerCase())
+          .cast<Article?>()
+          .firstOrNull;
+
+      if (target != null) {
+        print('✅ Found article: ${target.title}');
+        _switchArticleSafely(target);
+      } else {
+        print('❌ Article not found: $title');
+        // Show available articles for debugging
+        print('Available articles: ${controller.articles.map((a) => a.title).join(", ")}');
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Article "$title" not found'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    },
+  ),
+),
             ],
           ),
         ),
@@ -1905,83 +1924,87 @@ Widget _buildTocPanel() {
             ),
             const SizedBox(height: 12),
             
-            // Show message if no headings
-            if (controller.tocEntries.isEmpty)
-              const Expanded(
-                child: Center(
-                  child: Text(
-                    "No headings yet.\nAdd headings to see them here.",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.grey,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              )
-            else
-              Expanded(
-                child: ValueListenableBuilder<int>(
-                  valueListenable: controller.tocVersion,
-                  builder: (context, version, child) {
-                    return ListView.builder(
-                      itemCount: controller.tocEntries.length,
-                      itemBuilder: (context, index) {
-                        final entry = controller.tocEntries[index];
-                        
-                        // Clean the title for display
-                        final cleanTitle = _cleanTocTitle(entry.title);
-                        
-                        // Add indentation for different heading levels
-                        final indent = (entry.level - 1) * 12.0;
-                        
-                        return InkWell(
-                          borderRadius: BorderRadius.circular(6),
-                          onTap: () => _scrollToHeading(entry.id),
-                          child: Container(
-                            padding: EdgeInsets.only(
-                              left: 4 + indent,
-                              right: 4,
-                              top: 6,
-                              bottom: 6,
-                            ),
-                            child: Row(
-                              children: [
-                                // Level indicator dot
-                                Container(
-                                  width: 4,
-                                  height: 4,
-                                  margin: const EdgeInsets.only(right: 8),
-                                  decoration: BoxDecoration(
-                                    color: entry.level == 1 
-                                        ? Colors.blue
-                                        : Colors.grey,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                Expanded(
-                                  child: Text(
-                                    cleanTitle,
-                                    style: TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: entry.level == 1 ? 13 : 12,
-                                      fontWeight: entry.level == 1 
-                                          ? FontWeight.w600
-                                          : FontWeight.normal,
-                                    ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
+            // ✅ Use ValueListenableBuilder to watch for updates
+            Expanded(
+              child: ValueListenableBuilder<int>(
+                valueListenable: controller.tocVersion,
+                builder: (context, version, child) {
+                  print('TOC Panel rebuilding, version: $version, entries: ${controller.tocEntries.length}');
+                  
+                  // Show message if no headings
+                  if (controller.tocEntries.isEmpty) {
+                    return const Center(
+                      child: Text(
+                        "No headings yet.\nAdd headings to see them here.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                        ),
+                      ),
                     );
-                  },
-                ),
+                  }
+                  
+                  // Show the list of headings
+                  return ListView.builder(
+                    key: ValueKey('toc_$version'), // ✅ Force rebuild with key
+                    itemCount: controller.tocEntries.length,
+                    itemBuilder: (context, index) {
+                      final entry = controller.tocEntries[index];
+                      
+                      // Clean the title for display
+                      final cleanTitle = _cleanTocTitle(entry.title);
+                      
+                      // Add indentation for different heading levels
+                      final indent = (entry.level - 1) * 12.0;
+                      
+                      return InkWell(
+                        borderRadius: BorderRadius.circular(6),
+                        onTap: () => _scrollToHeading(entry.id),
+                        child: Container(
+                          padding: EdgeInsets.only(
+                            left: 4 + indent,
+                            right: 4,
+                            top: 6,
+                            bottom: 6,
+                          ),
+                          child: Row(
+                            children: [
+                              // Level indicator dot
+                              Container(
+                                width: 4,
+                                height: 4,
+                                margin: const EdgeInsets.only(right: 8),
+                                decoration: BoxDecoration(
+                                  color: entry.level == 1 
+                                      ? Colors.blue
+                                      : Colors.grey,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              Expanded(
+                                child: Text(
+                                  cleanTitle,
+                                  style: TextStyle(
+                                    color: Colors.white, // ✅ Changed from grey to white
+                                    fontSize: entry.level == 1 ? 13 : 12,
+                                    fontWeight: entry.level == 1 
+                                        ? FontWeight.w600
+                                        : FontWeight.normal,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
               ),
+            ),
           ],
         ),
       ),
@@ -1991,16 +2014,33 @@ Widget _buildTocPanel() {
 
 
 void _scrollToHeading(String id) {
+  // ✅ Ensure we have a valid article and scroll controller
+  if (controller.selectedArticle == null) return;
+  if (!articleScrollController.hasClients) {
+    print('Warning: Scroll controller not ready');
+    return;
+  }
+
+  // ✅ Call the controller's scroll method
   controller.scrollToHeading(id, articleScrollController);
   
+  // ✅ Find the entry for better feedback
+  final entry = controller.tocEntries.firstWhere(
+    (e) => e.id == id,
+    orElse: () => controller.tocEntries.first,
+  );
+  
+  // ✅ Show feedback with the cleaned title
+  final cleanTitle = _cleanTocTitle(entry.title);
+  
   // Optional: Show a brief highlight or feedback
-  final entry = controller.tocEntries.firstWhere((e) => e.id == id);
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
-      content: Text('Jumped to: ${_cleanTocTitle(entry.title)}'),
-      duration: const Duration(milliseconds: 800),
+      content: Text('Scrolling to: $cleanTitle'),
+      duration: const Duration(milliseconds: 1000),
       behavior: SnackBarBehavior.floating,
       margin: const EdgeInsets.only(bottom: 60, left: 20, right: 20),
+      backgroundColor: Colors.blueGrey.withOpacity(0.9),
     ),
   );
 }
