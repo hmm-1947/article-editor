@@ -1,19 +1,47 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show FontFeature;
 import 'package:arted/flags.dart';
+import 'package:arted/widgets/flag_embed.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:desktop_drop/desktop_drop.dart';
+import 'package:flutter_quill/flutter_quill.dart' as quill;
 
 enum InfoboxBlockType { image, twoColumn, twoColumnSeparated, centeredText }
 
 class InfoboxBlock {
+  final InfoboxBlockType type;
+
+  // Quill controllers for rich text
+  quill.QuillController? leftController;
+  quill.QuillController? rightController;
+  quill.QuillController? textController;
+  quill.QuillController? captionController;
+
+  // JSON storage
+  String? leftJson;
+  String? rightJson;
+  String? textJson;
+  String? captionJson;
+
+  // Image properties
+  String? imagePath;
+  BoxFit imageFit = BoxFit.cover;
+  double? width;
+  double? height;
+  Rect? cropRect;
+
+  InfoboxBlock({required this.type});
+
   Map<String, dynamic> toJson() => {
     'type': type.name,
-    'left': left,
-    'right': right,
-    'text': text,
+    'left': leftJson,
+    'right': rightJson,
+    'text': textJson,
+    'caption': captionJson,
     'imagePath': imagePath,
-    'caption': caption,
     'imageFit': imageFit.toString(),
     'width': width,
     'height': height,
@@ -33,11 +61,11 @@ class InfoboxBlock {
   ) {
     final b = InfoboxBlock(type: type);
 
-    b.left = json['left'];
-    b.right = json['right'];
-    b.text = json['text'];
+    b.leftJson = json['left'];
+    b.rightJson = json['right'];
+    b.textJson = json['text'];
+    b.captionJson = json['caption'];
     b.imagePath = json['imagePath'];
-    b.caption = json['caption'];
 
     if (json['imageFit'] != null) {
       b.imageFit = BoxFit.values.firstWhere(
@@ -62,24 +90,12 @@ class InfoboxBlock {
     return b;
   }
 
-  final InfoboxBlockType type;
-
-  TextEditingController? leftController;
-  TextEditingController? rightController;
-  TextEditingController? textController;
-  TextEditingController? captionController;
-
-  String? left;
-  String? right;
-  String? text;
-  String? imagePath;
-  String? caption;
-  BoxFit imageFit = BoxFit.cover;
-  double? width;
-  double? height;
-  Rect? cropRect;
-
-  InfoboxBlock({required this.type});
+  void dispose() {
+    leftController?.dispose();
+    rightController?.dispose();
+    textController?.dispose();
+    captionController?.dispose();
+  }
 }
 
 class InfoboxPanel extends StatefulWidget {
@@ -87,11 +103,9 @@ class InfoboxPanel extends StatefulWidget {
   final bool isViewMode;
   final Color panelColor;
   final VoidCallback onChanged;
-  final void Function(TextEditingController controller) onOpenFlagPicker;
-  final void Function(String title)? onOpenLink; // view mode click
-  final Future<String?> Function()? onPickArticle; // edit mode picker
-
-  final Future<String?> Function()? onPickArticleLink;
+  final void Function(quill.QuillController controller) onOpenFlagPicker;
+  final void Function(String title)? onOpenLink;
+  final Future<String?> Function()? onPickArticle;
 
   const InfoboxPanel({
     super.key,
@@ -102,7 +116,6 @@ class InfoboxPanel extends StatefulWidget {
     required this.onChanged,
     this.onOpenLink,
     this.onPickArticle,
-    this.onPickArticleLink,
   });
 
   @override
@@ -110,7 +123,25 @@ class InfoboxPanel extends StatefulWidget {
 }
 
 class _InfoboxPanelState extends State<InfoboxPanel> {
-  TextEditingController? _activeController;
+  quill.QuillController? _activeController;
+  bool _flagsInitialized = false;
+  final Set<quill.QuillController> _trackedControllers = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _initFlags();
+  }
+
+  Future<void> _initFlags() async {
+    await FlagsFeature.init();
+    if (mounted) {
+      setState(() {
+        _flagsInitialized = true;
+      });
+    }
+    print('✅ Flags initialized in InfoboxPanel');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -129,34 +160,232 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
               ),
             ),
           ),
-
           if (!widget.isViewMode) _bottomToolbar(),
         ],
       ),
     );
   }
 
+  quill.Document _jsonToDocument(String? json) {
+    if (json == null || json.isEmpty) {
+      return quill.Document();
+    }
+    
+    try {
+      final decoded = jsonDecode(json);
+      if (decoded is List) {
+        return quill.Document.fromJson(decoded);
+      }
+    } catch (e) {
+      print('⚠️ Legacy format detected, converting: "${json.substring(0, json.length.clamp(0, 50))}"');
+      final operations = _markdownToDelta(json);
+      return quill.Document.fromJson(operations);
+    }
+    
+    return quill.Document();
+  }
+
+  static List<Map<String, dynamic>> _markdownToDelta(String markdown) {
+    final operations = <Map<String, dynamic>>[];
+    
+    if (markdown.isEmpty) {
+      operations.add({'insert': '\n'});
+      return operations;
+    }
+
+    final regex = RegExp(
+      r'(\*\*.*?\*\*|__.*?__|~~.*?~~|\^.*?\^|~(?!~).*?~|_.*?_|\[\[.*?\]\]|\[flag:[A-Z0-9]{2,3}\])',
+    );
+
+    int lastIndex = 0;
+
+    for (final match in regex.allMatches(markdown)) {
+      if (match.start > lastIndex) {
+        operations.add({'insert': markdown.substring(lastIndex, match.start)});
+      }
+
+      final token = match.group(0)!;
+      
+      if (token.startsWith('**')) {
+        final text = token.substring(2, token.length - 2);
+        operations.add({'insert': text, 'attributes': {'bold': true}});
+      } else if (token.startsWith('__')) {
+        final text = token.substring(2, token.length - 2);
+        operations.add({'insert': text, 'attributes': {'underline': true}});
+      } else if (token.startsWith('~~')) {
+        final text = token.substring(2, token.length - 2);
+        operations.add({'insert': text, 'attributes': {'strike': true}});
+      } else if (token.startsWith('^')) {
+        final text = token.substring(1, token.length - 1);
+        operations.add({'insert': text, 'attributes': {'script': 'super'}});
+      } else if (token.startsWith('~') && !token.startsWith('~~')) {
+        final text = token.substring(1, token.length - 1);
+        operations.add({'insert': text, 'attributes': {'script': 'sub'}});
+      } else if (token.startsWith('_') && !token.startsWith('__')) {
+        final text = token.substring(1, token.length - 1);
+        operations.add({'insert': text, 'attributes': {'italic': true}});
+      } else if (token.startsWith('[[')) {
+        final content = token.substring(2, token.length - 2);
+        final parts = content.split('|');
+        final displayText = parts.first;
+        final linkTarget = parts.length > 1 ? parts.last : parts.first;
+        operations.add({'insert': displayText, 'attributes': {'link': linkTarget}});
+      } else if (token.startsWith('[flag:')) {
+        final flagCode = token.substring(6, token.length - 1);
+        operations.add({
+          'insert': {
+            'flag': flagCode
+          }
+        });
+      }
+
+      lastIndex = match.end;
+    }
+
+    if (lastIndex < markdown.length) {
+      operations.add({'insert': markdown.substring(lastIndex)});
+    }
+    
+    if (operations.isNotEmpty) {
+      final lastOp = operations.last;
+      if (lastOp['insert'] is String) {
+        final text = lastOp['insert'] as String;
+        if (!text.endsWith('\n')) {
+          operations.add({'insert': '\n'});
+        }
+      } else {
+        operations.add({'insert': '\n'});
+      }
+    } else {
+      operations.add({'insert': '\n'});
+    }
+
+    return operations;
+  }
+
+  String _documentToJson(quill.Document document) {
+    return jsonEncode(document.toDelta().toJson());
+  }
+
   void _ensureControllers(InfoboxBlock block) {
-    block.leftController ??= TextEditingController(text: block.left);
-    block.rightController ??= TextEditingController(text: block.right);
-    block.textController ??= TextEditingController(text: block.text);
-    block.captionController ??= TextEditingController(text: block.caption);
+    if (block.leftController == null) {
+      final doc = _jsonToDocument(block.leftJson);
+      block.leftController = quill.QuillController(
+        document: doc,
+        selection: const TextSelection.collapsed(offset: 0),
+      );
+      block.leftController!.addListener(() {
+        final newJson = _documentToJson(block.leftController!.document);
+        if (newJson != block.leftJson) {
+          block.leftJson = newJson;
+          widget.onChanged();
+        }
+      });
+    }
 
-    block.leftController!.addListener(() {
-      block.left = block.leftController!.text;
-    });
+    if (block.rightController == null) {
+      final doc = _jsonToDocument(block.rightJson);
+      block.rightController = quill.QuillController(
+        document: doc,
+        selection: const TextSelection.collapsed(offset: 0),
+      );
+      block.rightController!.addListener(() {
+        final newJson = _documentToJson(block.rightController!.document);
+        if (newJson != block.rightJson) {
+          block.rightJson = newJson;
+          widget.onChanged();
+        }
+      });
+    }
 
-    block.rightController!.addListener(() {
-      block.right = block.rightController!.text;
-    });
+    if (block.textController == null) {
+      final doc = _jsonToDocument(block.textJson);
+      block.textController = quill.QuillController(
+        document: doc,
+        selection: const TextSelection.collapsed(offset: 0),
+      );
+      block.textController!.addListener(() {
+        final newJson = _documentToJson(block.textController!.document);
+        if (newJson != block.textJson) {
+          block.textJson = newJson;
+          widget.onChanged();
+        }
+      });
+    }
 
-    block.textController!.addListener(() {
-      block.text = block.textController!.text;
-    });
+    if (block.captionController == null) {
+      final doc = _jsonToDocument(block.captionJson);
+      block.captionController = quill.QuillController(
+        document: doc,
+        selection: const TextSelection.collapsed(offset: 0),
+      );
 
-    block.captionController!.addListener(() {
-      block.caption = block.captionController!.text;
-    });
+      block.captionController!.addListener(() {
+        final newJson = _documentToJson(block.captionController!.document);
+        if (newJson != block.captionJson) {
+          block.captionJson = newJson;
+          widget.onChanged();
+        }
+      });
+    }
+    
+    void _trackController(quill.QuillController controller) {
+      if (_trackedControllers.contains(controller)) {
+        return;
+      }
+      _trackedControllers.add(controller);
+      
+      controller.addListener(() {
+        if (mounted && _activeController != controller) {
+          setState(() {
+            _activeController = controller;
+            print('🎯 Active controller changed to: ${_getControllerName(controller, block)}');
+          });
+        }
+      });
+    }
+    
+    _trackController(block.leftController!);
+    _trackController(block.rightController!);
+    _trackController(block.textController!);
+    _trackController(block.captionController!);
+  }
+  
+  String _getControllerName(quill.QuillController controller, InfoboxBlock block) {
+    if (controller == block.leftController) return 'left';
+    if (controller == block.rightController) return 'right';
+    if (controller == block.textController) return 'text';
+    if (controller == block.captionController) return 'caption';
+    return 'unknown';
+  }
+
+  Widget _renderFlag(String flagCode) {
+    // This renders a flag widget for the given country/region code
+    if (!_flagsInitialized) {
+      return Text(
+        '[$flagCode]',
+        style: const TextStyle(color: Colors.white70, fontSize: 10),
+      );
+    }
+    
+    // Get the flag file from FlagsFeature
+    final flagFile = FlagsFeature.getFlagFile(flagCode);
+    
+    if (flagFile != null && flagFile.existsSync()) {
+      return SizedBox(
+        height: FlagsFeature.flagHeight,
+        child: Image.file(flagFile, fit: BoxFit.contain),
+      );
+    }
+    
+    // Fallback if flag not found
+    return Text(
+      '[$flagCode]',
+      style: const TextStyle(
+        color: Colors.white70,
+        fontSize: 10,
+      ),
+    );
   }
 
   Widget _buildBlock(InfoboxBlock block) {
@@ -194,6 +423,7 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
             child: IconButton(
               icon: const Icon(Icons.close, size: 16),
               onPressed: () {
+                block.dispose();
                 setState(() {
                   widget.blocks.remove(block);
                 });
@@ -205,15 +435,66 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
     );
   }
 
+  Widget _buildQuillEditor(quill.QuillController controller) {
+    controller.readOnly = widget.isViewMode;
+    
+    return quill.QuillEditor.basic(
+      controller: controller,
+      config: quill.QuillEditorConfig(
+        scrollable: false,
+        autoFocus: false,
+        expands: false,
+        padding: const EdgeInsets.all(8),
+        embedBuilders: [FlagEmbedBuilder()],
+        onLaunchUrl: widget.onOpenLink != null ? (url) async {
+          widget.onOpenLink!(url);
+        } : null,
+        customStyles: quill.DefaultStyles(
+          paragraph: quill.DefaultTextBlockStyle(
+            const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              height: 1.5,
+            ),
+            quill.HorizontalSpacing.zero,
+            const quill.VerticalSpacing(4, 4),
+            const quill.VerticalSpacing(0, 0),
+            null,
+          ),
+          link: const TextStyle(
+            color: Colors.lightBlueAccent,
+            decoration: TextDecoration.underline,
+          ),
+          bold: const TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+          italic: const TextStyle(
+            fontStyle: FontStyle.italic,
+            color: Colors.white,
+          ),
+          underline: const TextStyle(
+            decoration: TextDecoration.underline,
+            color: Colors.white,
+          ),
+          strikeThrough: const TextStyle(
+            decoration: TextDecoration.lineThrough,
+            color: Colors.white,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _imageBlock(InfoboxBlock block) {
     return Padding(
       padding: const EdgeInsets.all(8),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           DropTarget(
             onDragDone: (details) {
               if (details.files.isEmpty) return;
-
               final file = details.files.first;
               setState(() {
                 block.imagePath = file.path;
@@ -242,7 +523,6 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
               ),
             ),
           ),
-
           const SizedBox(height: 8),
           if (!widget.isViewMode && block.imagePath != null)
             Padding(
@@ -258,22 +538,19 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
                 ],
               ),
             ),
-
           const SizedBox(height: 8),
+          
+          // Caption is center-aligned
           widget.isViewMode
-              ? FlagsFeature.buildRichText(
-                  block.caption ?? "",
-                  onOpenLink: widget.onOpenLink,
+              ? _buildCenteredCaption(
+                  block.captionController ?? quill.QuillController.basic(),
                 )
-              : TextField(
-                  controller: block.captionController,
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                  decoration: const InputDecoration(
-                    hintText: "Caption",
-                    hintStyle: TextStyle(color: Colors.grey),
-                    isDense: true,
+              : Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade700),
+                    borderRadius: BorderRadius.circular(4),
                   ),
-                  onTap: () => _activeController = block.captionController,
+                  child: _buildQuillEditor(block.captionController!),
                 ),
         ],
       ),
@@ -282,7 +559,6 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
 
   Widget _fitBtn(InfoboxBlock block, BoxFit fit, IconData icon) {
     final isActive = block.imageFit == fit;
-
     return IconButton(
       icon: Icon(icon, size: 18, color: isActive ? Colors.blue : Colors.grey),
       onPressed: () {
@@ -292,6 +568,99 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         widget.onChanged();
       },
       tooltip: fit.toString().split('.').last,
+    );
+  }
+
+  Widget _buildCenteredCaption(quill.QuillController controller) {
+    final plainText = controller.document.toPlainText().trim();
+    
+    if (plainText.isEmpty) {
+      return const SizedBox();
+    }
+    
+    // Build widgets from the Quill document delta
+    final widgets = <Widget>[];
+    final delta = controller.document.toDelta();
+    
+    for (final op in delta.toList()) {
+      if (op.data is String) {
+        final text = op.data as String;
+        if (text == '\n') continue; // Skip newlines
+        
+        final attributes = op.attributes;
+        
+        TextStyle style = const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          height: 1.5,
+        );
+        
+        if (attributes != null) {
+          if (attributes['bold'] == true) {
+            style = style.copyWith(fontWeight: FontWeight.bold);
+          }
+          if (attributes['italic'] == true) {
+            style = style.copyWith(fontStyle: FontStyle.italic);
+          }
+          if (attributes['underline'] == true) {
+            style = style.copyWith(decoration: TextDecoration.underline);
+          }
+          if (attributes['strike'] == true) {
+            style = style.copyWith(decoration: TextDecoration.lineThrough);
+          }
+          if (attributes['link'] != null) {
+            final linkTarget = attributes['link'] as String;
+            widgets.add(
+              GestureDetector(
+                onTap: widget.onOpenLink != null 
+                  ? () => widget.onOpenLink!(linkTarget)
+                  : null,
+                child: Text(
+                  text,
+                  style: style.copyWith(
+                    color: Colors.lightBlueAccent,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ),
+            );
+            continue;
+          }
+          if (attributes['script'] == 'super') {
+            style = style.copyWith(
+              fontSize: 8,
+              fontFeatures: [const FontFeature.enable('sups')],
+            );
+          }
+          if (attributes['script'] == 'sub') {
+            style = style.copyWith(
+              fontSize: 8,
+              fontFeatures: [const FontFeature.enable('subs')],
+            );
+          }
+        }
+        
+        widgets.add(Text(text, style: style));
+      } else if (op.data is Map && (op.data as Map).containsKey('flag')) {
+        final flagCode = (op.data as Map)['flag'] as String;
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: _renderFlag(flagCode),
+          ),
+        );
+      }
+    }
+    
+    return Container(
+      padding: const EdgeInsets.all(8),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 0,
+        runSpacing: 4,
+        children: widgets,
+      ),
     );
   }
 
@@ -317,59 +686,48 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: FlagsFeature.buildRichText(
-                block.left ?? "",
-                onOpenLink: widget.onOpenLink,
-              ),
-            ),
+            child: _buildQuillEditor(block.leftController ?? quill.QuillController.basic()),
           ),
           if (showSeparator)
             Container(
-              margin: const EdgeInsets.symmetric(horizontal: 8),
+              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               width: 1,
-              color: Colors.grey.shade600,
+              height: 40,
+              color: Colors.grey.shade500,
             ),
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: FlagsFeature.buildRichText(
-                block.right ?? "",
-                onOpenLink: widget.onOpenLink,
-              ),
-            ),
+            child: _buildQuillEditor(block.rightController ?? quill.QuillController.basic()),
           ),
         ],
       );
     }
 
-    // EDIT MODE
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
-          child: TextField(
-            controller: block.leftController,
-            style: const TextStyle(color: Colors.white),
-            maxLines: null,
-            onTap: () => _activeController = block.leftController,
-            onChanged: (v) => block.left = v,
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade700),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: _buildQuillEditor(block.leftController!),
           ),
         ),
         if (showSeparator)
           Container(
-            margin: const EdgeInsets.symmetric(horizontal: 8),
+            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             width: 1,
-            color: Colors.grey.shade600,
+            height: 40,
+            color: Colors.grey.shade500,
           ),
         Expanded(
-          child: TextField(
-            controller: block.rightController,
-            style: const TextStyle(color: Colors.white),
-            maxLines: null,
-            onTap: () => _activeController = block.rightController,
-            onChanged: (v) => block.right = v,
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade700),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: _buildQuillEditor(block.rightController!),
           ),
         ),
       ],
@@ -379,21 +737,16 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
   Widget _centeredTextBlock(InfoboxBlock block) {
     if (widget.isViewMode) {
       return Center(
-        child: FlagsFeature.buildRichText(
-          block.text ?? "",
-          onOpenLink: widget.onOpenLink,
-        ),
+        child: _buildQuillEditor(block.textController ?? quill.QuillController.basic()),
       );
     }
 
-    return TextField(
-      controller: block.textController,
-      textAlign: TextAlign.center,
-      style: const TextStyle(color: Colors.white),
-      maxLines: null,
-      onTap: () => _activeController = block.textController,
-
-      onChanged: (v) => block.text = v,
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade700),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: _buildQuillEditor(block.textController!),
     );
   }
 
@@ -426,9 +779,17 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
             ),
             IconButton(
               icon: const Icon(Icons.flag),
+              tooltip: "Insert flag",
               onPressed: () {
                 if (_activeController != null) {
                   widget.onOpenFlagPicker(_activeController!);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Click in a text field first, then click the flag button'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
                 }
               },
             ),
@@ -436,13 +797,22 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
               icon: const Icon(Icons.link),
               tooltip: "Insert article link",
               onPressed: () async {
-                if (_activeController == null) return;
+                if (_activeController == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Click in a text field first, then click the link button'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                  return;
+                }
+                
                 if (widget.onPickArticle == null) return;
 
                 final title = await widget.onPickArticle!();
                 if (title == null) return;
 
-                _wrapSelectionWithLink(_activeController!, title);
+                _insertLinkIntoQuill(_activeController!, title);
                 widget.onChanged();
               },
             ),
@@ -452,24 +822,38 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
     );
   }
 
-  void _wrapSelectionWithLink(
-    TextEditingController controller,
-    String targetTitle,
-  ) {
-    final sel = controller.selection;
-    if (!sel.isValid) return;
+  void _insertLinkIntoQuill(quill.QuillController controller, String targetTitle) {
+    final selection = controller.selection;
+    final index = selection.baseOffset;
+    final length = selection.extentOffset - selection.baseOffset;
 
-    final text = controller.text;
-    final selected = sel.isCollapsed
-        ? targetTitle
-        : text.substring(sel.start, sel.end);
+    if (length > 0) {
+      controller.formatText(
+        index,
+        length,
+        quill.LinkAttribute(targetTitle),
+      );
+    } else {
+      controller.document.insert(index, targetTitle);
+      controller.formatText(
+        index,
+        targetTitle.length,
+        quill.LinkAttribute(targetTitle),
+      );
 
-    final wrapped = '[[${selected}|$targetTitle]]';
+      controller.updateSelection(
+        TextSelection.collapsed(offset: index + targetTitle.length),
+        quill.ChangeSource.local,
+      );
+    }
+  }
 
-    controller.text = text.replaceRange(sel.start, sel.end, wrapped);
-    controller.selection = TextSelection.collapsed(
-      offset: sel.start + wrapped.length,
-    );
+  @override
+  void dispose() {
+    for (final block in widget.blocks) {
+      block.dispose();
+    }
+    super.dispose();
   }
 
   void _addBlock(InfoboxBlockType type) {

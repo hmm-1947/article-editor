@@ -9,6 +9,7 @@ import 'controllers/workspace_controller.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'package:arted/widgets/quill_toolbar_wrapper.dart';
 import 'dart:io';
+import 'package:flutter_quill/flutter_quill.dart' as quill;
 
 class ProjectWorkspacePage extends StatefulWidget {
   final Project project;
@@ -590,10 +591,16 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
     setState(() {});
   }
 
+// Complete replacement for _showFlagPickerForController in project_workspace_page.dart
+// Place this in the _ProjectWorkspacePageState class
+
+// Complete replacement for _showFlagPickerForController in project_workspace_page.dart
+// Place this in the _ProjectWorkspacePageState class
+
 void _showFlagPickerForController(
-  TextEditingController? targetController, {
-  Function(String code)? onFlagSelected,
-}) async {
+  dynamic targetController, // ✅ Changed from TextEditingController? to dynamic
+  {Function(String code)? onFlagSelected}
+) async {
   final allFlags = await FlagsFeature.getFlags();
   String query = "";
   final recentCodes = FlagsFeature.getRecentFlags();
@@ -652,13 +659,40 @@ void _showFlagPickerForController(
                 borderRadius: BorderRadius.circular(6),
                 onTap: () {
                   if (onFlagSelected != null) {
+                    // Custom callback provided
                     onFlagSelected(code);
                     Navigator.pop(context);
                   } else if (targetController != null) {
-                    FlagsFeature.insertFlagAtCursor(
-                      targetController,
-                      code,
-                    );
+                    // ✅ Handle both QuillController and TextEditingController
+                    if (targetController is quill.QuillController) {
+                      // Insert flag into Quill editor - same format as main editor
+                      final index = targetController.selection.baseOffset;
+                      
+                      print('🚩 Inserting flag: $code at index $index');
+                      
+                      // ✅ Use the same format as main editor
+                      final embed = {'flag': code};
+                      
+                      final embeddable = quill.Embeddable.fromJson(embed);
+                      if (embeddable != null) {
+                        targetController.document.insert(index, embeddable);
+                        
+                        targetController.updateSelection(
+                          TextSelection.collapsed(offset: index + 1),
+                          quill.ChangeSource.local,
+                        );
+                        
+                        print('✅ Flag inserted successfully');
+                      } else {
+                        print('❌ Failed to create embeddable from: $embed');
+                      }
+                    } else if (targetController is TextEditingController) {
+                      // Legacy TextEditingController support (if any remain)
+                      FlagsFeature.insertFlagAtCursor(
+                        targetController,
+                        code,
+                      );
+                    }
                     Navigator.pop(context);
                   }
                 },
@@ -1029,32 +1063,50 @@ void _showFlagPickerForController(
                                     clipBehavior: Clip.antiAlias,
                                     child: selected == null
                                         ? const SizedBox()
-                                        : InfoboxPanel(
-                                            blocks: selected.infoboxBlocks,
-                                            isViewMode: controller.isViewMode,
-                                            panelColor: panel,
-                                            onChanged:
-                                                controller.markInfoboxDirty,
-                                            onOpenFlagPicker:
-                                                _showFlagPickerForController,
-                                            onOpenLink: (title) {
-                                              final target = controller.articles
-                                                  .where(
-                                                    (a) => a.title == title,
-                                                  )
-                                                  .cast<Article?>()
-                                                  .firstOrNull;
+                                        : // In project_workspace_page.dart, update the InfoboxPanel instantiation
+// This goes in the _buildEditor() method where InfoboxPanel is created
 
-                                              if (target != null) {
-                                                _switchArticleSafely(target);
-                                              }
-                                            },
-                                            onPickArticle: () async {
-                                              final article =
-                                                  await _showArticleLinkPicker();
-                                              return article?.title;
-                                            },
-                                          ),
+// Make sure this import exists at the top of the file:
+
+// Then replace the InfoboxPanel widget with:
+InfoboxPanel(
+  blocks: selected.infoboxBlocks,
+  isViewMode: controller.isViewMode,
+  panelColor: panel,
+  onChanged: controller.markInfoboxDirty,
+  
+  // ✅ Updated to pass QuillController (type inference handles it)
+  onOpenFlagPicker: _showFlagPickerForController,
+  
+  // ✅ Handle link clicks in view mode
+  onOpenLink: (title) {
+    print('🔗 Infobox link clicked: $title');
+    
+    final target = controller.articles
+        .where((a) => a.title.toLowerCase() == title.toLowerCase())
+        .cast<Article?>()
+        .firstOrNull;
+
+    if (target != null) {
+      print('✅ Found article: ${target.title}');
+      _switchArticleSafely(target);
+    } else {
+      print('❌ Article not found: $title');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Article "$title" not found'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  },
+  
+  // ✅ Article picker for link insertion
+  onPickArticle: () async {
+    final article = await _showArticleLinkPicker();
+    return article?.title;
+  },
+),
                                   ),
                                 ),
                               ),
