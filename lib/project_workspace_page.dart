@@ -8,6 +8,7 @@ import 'infobox_panel.dart';
 import 'controllers/workspace_controller.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'package:arted/widgets/quill_toolbar_wrapper.dart';
+import 'dart:io';
 
 class ProjectWorkspacePage extends StatefulWidget {
   final Project project;
@@ -93,26 +94,29 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
     _groupedArticles = map;
   }
 
-  String _cleanTocTitle(String raw) {
-    String text = raw;
+ String _cleanTocTitle(String raw) {
+  String text = raw;
 
-    text = text.replaceAllMapped(RegExp(r'\*\*(.*?)\*\*'), (m) => m.group(1)!);
-    text = text.replaceAllMapped(RegExp(r'__(.*?)__'), (m) => m.group(1)!);
-    text = text.replaceAllMapped(RegExp(r'~~(.*?)~~'), (m) => m.group(1)!);
-    text = text.replaceAllMapped(RegExp(r'_(.*?)_'), (m) => m.group(1)!);
-    text = text.replaceAllMapped(RegExp(r'`(.*?)`'), (m) => m.group(1)!);
+  text = text.replaceAllMapped(RegExp(r'\*\*(.*?)\*\*'), (m) => m.group(1)!);
+  text = text.replaceAllMapped(RegExp(r'__(.*?)__'), (m) => m.group(1)!);
+  text = text.replaceAllMapped(RegExp(r'~~(.*?)~~'), (m) => m.group(1)!);
+  text = text.replaceAllMapped(RegExp(r'_(.*?)_'), (m) => m.group(1)!);
+  text = text.replaceAllMapped(RegExp(r'`(.*?)`'), (m) => m.group(1)!);
 
-    text = text.replaceAllMapped(
-      RegExp(r'\[\[(.*?)\|(.*?)\]\]'),
-      (m) => m.group(1)!,
-    );
-    text = text.replaceAllMapped(RegExp(r'\[\[(.*?)\]\]'), (m) => m.group(1)!);
-    text = text.replaceAllMapped(RegExp(r'\[(.*?)\]'), (m) => m.group(1)!);
+  text = text.replaceAllMapped(
+    RegExp(r'\[\[(.*?)\|(.*?)\]\]'),
+    (m) => m.group(1)!,
+  );
+  text = text.replaceAllMapped(RegExp(r'\[\[(.*?)\]\]'), (m) => m.group(1)!);
+  text = text.replaceAllMapped(RegExp(r'\[(.*?)\]'), (m) => m.group(1)!);
 
-    text = text.replaceAll('|', '');
+  text = text.replaceAll('|', '');
+  
+  // ADD THIS LINE - remove newlines
+  text = text.replaceAll('\n', ' ');
 
-    return text.replaceAll(RegExp(r'\s+'), ' ').trim();
-  }
+  return text.replaceAll(RegExp(r'\s+'), ' ').trim();
+}
 
   void _confirmDeleteCategory(String category) {
     if (category == "Uncategorized") return;
@@ -586,199 +590,212 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
     setState(() {});
   }
 
-  void _showFlagPickerForController(
-    TextEditingController? targetController, {
-    Function(String code)? onFlagSelected,
-  }) async {
-    final allFlags = await FlagsFeature.getFlags();
-    String query = "";
-    final recentCodes = FlagsFeature.getRecentFlags();
+void _showFlagPickerForController(
+  TextEditingController? targetController, {
+  Function(String code)? onFlagSelected,
+}) async {
+  final allFlags = await FlagsFeature.getFlags();
+  String query = "";
+  final recentCodes = FlagsFeature.getRecentFlags();
 
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setLocalState) {
-            final filtered = allFlags.entries.where((e) {
-              return query.isEmpty || e.key.toLowerCase().contains(query);
-            }).toList();
+  showDialog(
+    context: context,
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setLocalState) {
+          final filtered = allFlags.entries.where((e) {
+            return query.isEmpty || e.key.toLowerCase().contains(query);
+          }).toList();
 
-            return AlertDialog(
-              backgroundColor: panel,
-              title: const Text(
-                "Insert Flag",
-                style: TextStyle(color: Colors.white),
-              ),
-              content: SizedBox(
-                width: 360,
-                height: 420,
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        const Text(
-                          "Insert Flag",
-                          style: TextStyle(color: Colors.white, fontSize: 16),
-                        ),
-                        const Spacer(),
-                        IconButton(
-  tooltip: controller.isViewMode ? "Edit mode" : "Preview mode",
-  icon: Icon(
-    controller.isViewMode ? Icons.edit_note : Icons.preview,
-    color: Colors.white,
-  ),
-  onPressed: () {
-    setState(() {
-      controller.isViewMode = !controller.isViewMode;
-      // ✅ SET THE CONTROLLER'S READONLY PROPERTY
-      controller.contentController.readOnly = controller.isViewMode;
-    });
-  },
-),
-                      ],
+          Widget buildFlagItem(String code, File file) {
+            return GestureDetector(
+              onLongPress: () async {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    backgroundColor: panel,
+                    title: const Text(
+                      "Delete Flag?",
+                      style: TextStyle(color: Colors.white),
                     ),
-                    TextField(
-                      autofocus: true,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        hintText: "Search flag (IN, US, FR...)",
-                        hintStyle: TextStyle(color: grey),
+                    content: Text(
+                      "Delete flag '$code'?",
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text("Cancel"),
                       ),
-                      onChanged: (v) {
-                        setLocalState(() {
-                          query = v.trim().toLowerCase();
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (recentCodes.isNotEmpty) ...[
-                              const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 8),
-                                child: Text(
-                                  "Recent",
-                                  style: TextStyle(color: grey, fontSize: 12),
-                                ),
-                              ),
-                              GridView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: recentCodes.length,
-                                gridDelegate:
-                                    const SliverGridDelegateWithFixedCrossAxisCount(
-                                      crossAxisCount: 6,
-                                      mainAxisSpacing: 12,
-                                      crossAxisSpacing: 12,
-                                      childAspectRatio: 0.9,
-                                    ),
-                                itemBuilder: (_, i) {
-                                  final code = recentCodes[i];
-                                  final file = allFlags[code];
-                                  if (file == null) return const SizedBox();
-
-                                  return InkWell(
-                                    borderRadius: BorderRadius.circular(6),
-                                    onTap: () {
-                                      if (onFlagSelected != null) {
-                                        onFlagSelected(code);
-                                        Navigator.pop(context);
-                                      } else if (targetController != null) {
-                                        FlagsFeature.insertFlagAtCursor(
-                                          targetController,
-                                          code,
-                                        );
-                                        Navigator.pop(context);
-                                      }
-                                    },
-                                    child: Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Image.file(file, height: 24),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          code,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 11,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
-                              const Divider(color: Colors.grey),
-                            ],
-                            GridView.builder(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              itemCount: filtered.length,
-                              gridDelegate:
-                                  const SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 6,
-                                    mainAxisSpacing: 12,
-                                    crossAxisSpacing: 12,
-                                    childAspectRatio: 0.9,
-                                  ),
-                              itemBuilder: (_, i) {
-                                final code = filtered[i].key;
-                                final file = filtered[i].value;
-
-                                return InkWell(
-                                  borderRadius: BorderRadius.circular(6),
-                                  onTap: () {
-                                    if (onFlagSelected != null) {
-                                      onFlagSelected(code);
-                                      Navigator.pop(context);
-                                    } else if (targetController != null) {
-                                      FlagsFeature.insertFlagAtCursor(
-                                        targetController,
-                                        code,
-                                      );
-                                      Navigator.pop(context);
-                                    }
-                                  },
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Image.file(file, height: 24),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        code,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 11,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                          ],
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
                         ),
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const Text("Delete"),
+                      ),
+                    ],
+                  ),
+                );
+
+                if (confirm == true) {
+                  await FlagsFeature.deleteFlag(code);
+                  final refreshed = await FlagsFeature.loadAllFlags();
+                  setLocalState(() {
+                    allFlags
+                      ..clear()
+                      ..addAll(refreshed);
+                  });
+                }
+              },
+              child: InkWell(
+                borderRadius: BorderRadius.circular(6),
+                onTap: () {
+                  if (onFlagSelected != null) {
+                    onFlagSelected(code);
+                    Navigator.pop(context);
+                  } else if (targetController != null) {
+                    FlagsFeature.insertFlagAtCursor(
+                      targetController,
+                      code,
+                    );
+                    Navigator.pop(context);
+                  }
+                },
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Image.file(file, height: 24),
+                    const SizedBox(height: 4),
+                    Text(
+                      code,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
                       ),
                     ),
                   ],
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("Close", style: TextStyle(color: grey)),
-                ),
-              ],
             );
-          },
-        );
-      },
-    );
-  }
+          }
+
+          return AlertDialog(
+            backgroundColor: panel,
+            title: const Text(
+              "Insert Flag",
+              style: TextStyle(color: Colors.white),
+            ),
+            content: SizedBox(
+              width: 360,
+              height: 420,
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        "Insert Flag (Long-press to delete)",
+                        style: TextStyle(color: Colors.white, fontSize: 14),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.add, color: Colors.white),
+                        tooltip: "Add new flag",
+                        onPressed: () async {
+                          await _showAddFlagDialog();
+                          final refreshed = await FlagsFeature.loadAllFlags();
+                          setLocalState(() {
+                            allFlags
+                              ..clear()
+                              ..addAll(refreshed);
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                  TextField(
+                    autofocus: true,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      hintText: "Search flag (IN, US, FR...)",
+                      hintStyle: TextStyle(color: grey),
+                    ),
+                    onChanged: (v) {
+                      setLocalState(() {
+                        query = v.trim().toLowerCase();
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (recentCodes.isNotEmpty) ...[
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: Text(
+                                "Recent",
+                                style: TextStyle(color: grey, fontSize: 12),
+                              ),
+                            ),
+                            GridView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: recentCodes.length,
+                              gridDelegate:
+                                  const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 6,
+                                mainAxisSpacing: 12,
+                                crossAxisSpacing: 12,
+                                childAspectRatio: 0.9,
+                              ),
+                              itemBuilder: (_, i) {
+                                final code = recentCodes[i];
+                                final file = allFlags[code];
+                                if (file == null) return const SizedBox();
+                                return buildFlagItem(code, file);
+                              },
+                            ),
+                            const Divider(color: Colors.grey),
+                          ],
+                          GridView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: filtered.length,
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 6,
+                              mainAxisSpacing: 12,
+                              crossAxisSpacing: 12,
+                              childAspectRatio: 0.9,
+                            ),
+                            itemBuilder: (_, i) {
+                              final code = filtered[i].key;
+                              final file = filtered[i].value;
+                              return buildFlagItem(code, file);
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Close", style: TextStyle(color: grey)),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
 
   void _showNewArticleDialog() {
     final titleCtrl = TextEditingController();
@@ -1771,45 +1788,50 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                 Text(a.category, style: const TextStyle(color: grey))
               else
                 DropdownButton<String>(
-                  value: a.category,
-                  dropdownColor: panel,
-                  items: controller.categories
-                      .map(
-                        (c) => DropdownMenuItem(
-                          value: c,
-                          child: Text(
-                            c,
-                            style: const TextStyle(color: Colors.white),
-                          ),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (v) async {
-                    if (v == null) return;
-                    await (await AppDatabase.database).update(
-                      'articles',
-                      {'category': v},
-                      where: 'id = ?',
-                      whereArgs: [a.id],
-                    );
-                    setState(() => a.category = v);
-                  },
-                ),
+  value: a.category,
+  dropdownColor: panel,
+  items: controller.categories
+      .map(
+        (c) => DropdownMenuItem(
+          value: c,
+          child: Text(
+            c,
+            style: const TextStyle(color: Colors.white),
+          ),
+        ),
+      )
+      .toList(),
+  onChanged: (v) async {
+    if (v == null) return;
+    await (await AppDatabase.database).update(
+      'articles',
+      {'category': v},
+      where: 'id = ?',
+      whereArgs: [a.id],
+    );
+    setState(() {
+      a.category = v;
+      _rebuildGroupedArticles();  // ADD THIS LINE
+    });
+  },
+),
 
               const SizedBox(height: 16),
 
               if (!controller.isViewMode)
                 QuillToolbarWrapper(
-                  controller: controller.contentController,
-                  panelColor: panel,
-                  onOpenFlagMenu: _insertFlagIntoQuill,
-                  onLink: () async {
-                    final target = await _showArticleLinkPicker();
-                    if (target != null) {
-                      _insertLinkIntoQuill(target.title);
-                    }
-                  },
-                ),
+  controller: controller.contentController,
+  panelColor: panel,
+  onOpenFlagMenu: _insertFlagIntoQuill,
+  onLink: () async {
+    final target = await _showArticleLinkPicker();
+    if (target != null) {
+      _insertLinkIntoQuill(target.title);
+    }
+  },
+  onPauseTocRebuild: controller.pauseTocRebuild, // ADD THIS
+  onResumeTocRebuild: controller.resumeTocRebuild, // ADD THIS
+),
 
               const SizedBox(height: 12),
 

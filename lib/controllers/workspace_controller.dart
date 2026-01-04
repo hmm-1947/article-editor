@@ -6,8 +6,8 @@ import 'package:arted/app_database.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 
 class WorkspaceController {
-  
   final TextEditingController titleController = TextEditingController();
+  
   late quill.QuillController contentController;
   
   final List<TocEntry> tocEntries = [];
@@ -18,6 +18,7 @@ class WorkspaceController {
   Article? selectedArticle;
   bool _infoboxDirty = false;
   bool isViewMode = false;
+  bool _pauseTocRebuild = false;
 
   String originalContent = "";
   String originalTitle = "";
@@ -25,19 +26,24 @@ class WorkspaceController {
   final ValueNotifier<Article?> hoveredArticle = ValueNotifier(null);
   final ValueNotifier<String?> hoveredCategory = ValueNotifier(null);
   final ValueNotifier<int> tocVersion = ValueNotifier(0);
-
+  
   DateTime? lastSaved;
 
   WorkspaceController() {
-    // ✅ Create controller once in constructor
     contentController = quill.QuillController.basic();
-    
-    // ✅ Add listener once
-    contentController.addListener(() {
-      rebuildTocFromContent();
-      tocVersion.value++;
-    });
   }
+
+  void pauseTocRebuild() {
+    _pauseTocRebuild = true;
+  }
+
+  void resumeTocRebuild() {
+  _pauseTocRebuild = false;
+  // Use Future.microtask to ensure document changes have settled
+  Future.microtask(() {
+    rebuildTocFromContent();
+  });
+}
 
   String generateHeadingId() => _generateHeadingId();
 
@@ -47,14 +53,19 @@ class WorkspaceController {
 
   void dispose() {
     titleController.dispose();
-    contentController.dispose(); // ✅ Only dispose once at the very end
+    contentController.dispose();
     hoveredArticle.dispose();
     hoveredCategory.dispose();
     tocVersion.dispose();
   }
 
   void initialize(Function refreshUI, String projectId) {
-    // Listener is already added in constructor
+    contentController.addListener(() {
+      if (!_pauseTocRebuild) {
+        rebuildTocFromContent();
+      }
+    });
+
     _loadCategories(refreshUI, projectId).then((_) {
       _loadArticles(refreshUI, projectId);
     });
@@ -240,27 +251,23 @@ class WorkspaceController {
   }
 
   void _loadArticle(Article article) {
-  titleController.text = article.title;
-  
-  final document = _documentFromJson(article.content);
-  
-  // ✅ DON'T dispose - just replace the document
-  contentController.document = document;
-  contentController.readOnly = isViewMode;
-  
-  // Reset selection to start
-  contentController.updateSelection(
-    const TextSelection.collapsed(offset: 0),
-    quill.ChangeSource.local,
-  );
+    titleController.text = article.title;
+    
+    final document = _documentFromJson(article.content);
+    
+    contentController.document = document;
+    contentController.readOnly = isViewMode;
+    
+    contentController.updateSelection(
+      const TextSelection.collapsed(offset: 0),
+      quill.ChangeSource.local,
+    );
 
-  // ✅ Build TOC immediately after loading
-  rebuildTocFromContent();
-  tocVersion.value++;
+    rebuildTocFromContent();
 
-  originalContent = article.content;
-  originalTitle = article.title;
-}
+    originalContent = article.content;
+    originalTitle = article.title;
+  }
 
   void openArticleByTitle(String title, Function refreshUI) async {
     if (articles.isEmpty) return;
@@ -277,24 +284,17 @@ class WorkspaceController {
   }
 
   Future<bool> requestArticleSwitch(
-  Article target,
-  Future<void> Function() onSave,
-) async {
-  print('📋 requestArticleSwitch: target="${target.title}", current="${selectedArticle?.title}"');
-  
-  // ✅ Don't check if same article - always allow the switch
-  // This fixes first-click issues where the article is "selected" but content isn't loaded
-  
-  if (!hasUnsavedChanges) {
-    print('   No unsaved changes, loading article...');
-    _loadArticle(target);
-    await _loadInfoboxBlocks(target);
-    return true;
-  }
+    Article target,
+    Future<void> Function() onSave,
+  ) async {
+    if (!hasUnsavedChanges) {
+      _loadArticle(target);
+      await _loadInfoboxBlocks(target);
+      return true;
+    }
 
-  print('   Has unsaved changes, returning false to show dialog');
-  return false;
-}
+    return false;
+  }
 
   bool get hasUnsavedChanges {
     if (selectedArticle == null) return false;
@@ -356,119 +356,168 @@ class WorkspaceController {
   }
 
   void rebuildTocFromContent() {
-  tocEntries.clear();
+  final newEntries = <TocEntry>[];
   
   final doc = contentController.document;
   int headingIndex = 0;
   int charOffset = 0;
 
-  print('\n=== REBUILDING TOC (DETAILED) ===');
-  print('Total nodes in document: ${doc.root.children.length}');
-
-  for (int i = 0; i < doc.root.children.length; i++) {
-    final node = doc.root.children.elementAt(i);
-    final allAttributes = node.style.attributes;
-    final headerAttr = allAttributes['header'];
-    final text = node.toPlainText().trim();
+  try {
+    print('🔍 TOC Rebuild - Scanning ${doc.root.children.length} nodes');
     
-    print('Node $i:');
-    print('  Text: "$text"');
-    print('  Header attribute: ${headerAttr?.value}');
-    print('  All attributes: $allAttributes');
-    print('  Node type: ${node.runtimeType}');
-    
-    if (headerAttr != null) {
-      print('  ⭐ HAS HEADER! Value: ${headerAttr.value}');
-      if (headerAttr.value == 1 || headerAttr.value == 2) {
-        if (text.isNotEmpty) {
-          final id = 'h_$headingIndex';
-          tocEntries.add(
-            TocEntry(
-              id: id, 
-              title: text, 
-              textOffset: charOffset,
-              level: headerAttr.value as int,
-            ),
-          );
-          print('  ✅ ADDED TO TOC: "$text" (level ${headerAttr.value})');
-          headingIndex++;
-        }
-      }
-    }
-    
-    charOffset += node.length;
-  }
-  
-  print('TOC FINAL COUNT: ${tocEntries.length} entries');
-  print('===================================\n');
-}
-
-  void scrollToHeading(String id, ScrollController scrollController) {
-  final entry = tocEntries.firstWhere(
-    (e) => e.id == id,
-    orElse: () => tocEntries.first,
-  );
-
-  print('Scrolling to heading: ${entry.title} at offset ${entry.textOffset}');
-
-  // ✅ Update selection to the heading position
-  contentController.updateSelection(
-    TextSelection.collapsed(offset: entry.textOffset),
-    quill.ChangeSource.local,
-  );
-
-  // ✅ Wait for the next frame to ensure layout is complete
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    if (!scrollController.hasClients) {
-      print('ScrollController has no clients');
-      return;
-    }
-    
-    // ✅ Calculate approximate pixel position
-    final doc = contentController.document;
-    double estimatedHeight = 0.0;
-    
-    // Calculate height up to the heading
-    int currentOffset = 0;
     for (final node in doc.root.children) {
-      if (currentOffset >= entry.textOffset) break;
+      final text = node.toPlainText().trim();
       
-      // Estimate height based on node type
-      final style = node.style.attributes['header'];
-      if (style != null) {
-        // Heading height (with padding)
-        if (style.value == 1) {
-          estimatedHeight += 28 * 1.4 + 24; // fontSize * lineHeight + padding
-        } else if (style.value == 2) {
-          estimatedHeight += 22 * 1.4 + 18; // fontSize * lineHeight + padding
-        } else {
-          estimatedHeight += 18 * 1.4 + 14; // fontSize * lineHeight + padding
-        }
-      } else {
-        // Regular paragraph height - estimate based on text length
-        final textLength = node.toPlainText().length;
-        final lines = (textLength / 80).ceil().clamp(1, 10);
-        estimatedHeight += lines * (14 * 1.6 + 16); // fontSize * lineHeight + padding
+      if (text.isEmpty) {
+        charOffset += node.length;
+        continue;
       }
       
-      currentOffset += node.length;
+      print('  Text: "$text"');
+      print('  Block attrs: ${node.style.attributes}');
+      
+      bool isHeading = false;
+      
+      // Check 1: Has header block attribute (old style)
+      final headerAttr = node.style.attributes['header'];
+      if (headerAttr != null && headerAttr.value == 2) {
+        isHeading = true;
+        print('    ✓ Is heading (header attr)');
+      }
+      
+      // Check 2: Check inline styles by looking at Delta
+      if (!isHeading) {
+        try {
+          // Get the delta for just this line
+          final lineStart = charOffset;
+          final lineEnd = charOffset + node.length - 1; // Exclude newline
+          
+          if (lineEnd > lineStart) {
+            final lineDelta = doc.toDelta().slice(lineStart, lineEnd);
+            
+            // Check first operation for size attribute
+            if (lineDelta.isNotEmpty) {
+              final firstOp = lineDelta.first;
+              final attrs = firstOp.attributes;
+              
+              if (attrs != null) {
+                print('    Inline attrs: $attrs');
+                
+                final size = attrs['size'];
+                final bold = attrs['bold'];
+                
+                if (size != null) {
+                  print('      Size: $size (${size.runtimeType})');
+                  
+                  if (size == 'large' || size == 'huge') {
+                    isHeading = true;
+                    print('      ✓ Is heading (size word)');
+                  } else if (size is String) {
+                    final numSize = double.tryParse(size);
+                    if (numSize != null && numSize >= 22) {
+                      isHeading = true;
+                      print('      ✓ Is heading (size: $numSize)');
+                    }
+                  } else if (size is num && size >= 22) {
+                    isHeading = true;
+                    print('      ✓ Is heading (size: $size)');
+                  }
+                }
+                
+                if (bold == true) {
+                  print('      Bold: true');
+                }
+              }
+            }
+          }
+        } catch (e) {
+          print('    Error checking inline attrs: $e');
+        }
+      }
+      
+      if (isHeading) {
+  final id = 'h_$headingIndex';
+  
+  // Clean the title: remove newlines and extra whitespace
+  final cleanTitle = text
+      .replaceAll('\n', ' ')  // Replace newlines with spaces
+      .replaceAll(RegExp(r'\s+'), ' ')  // Collapse multiple spaces
+      .trim();
+  
+  newEntries.add(
+    TocEntry(id: id, title: cleanTitle, textOffset: charOffset),
+  );
+  headingIndex++;
+  print('    ✅ ADDED TO TOC: "$cleanTitle"');
+}
+      
+      charOffset += node.length;
     }
     
-    print('Estimated scroll position: $estimatedHeight');
+    print('📋 TOC Rebuilt: ${newEntries.length} entries found');
     
-    // ✅ Scroll with offset to show heading near top (with 100px margin)
-    final targetScroll = (estimatedHeight - 100).clamp(
-      0.0,
-      scrollController.position.maxScrollExtent,
-    );
+    tocEntries
+      ..clear()
+      ..addAll(newEntries);
     
-    scrollController.animateTo(
-      targetScroll,
-      duration: const Duration(milliseconds: 400),
-      curve: Curves.easeInOutCubic,
-    );
-  });
+    tocVersion.value++;
+  } catch (e) {
+    print('❌ TOC rebuild error: $e');
+  }
 }
+  void scrollToHeading(String id, ScrollController scrollController) {
+    final entry = tocEntries.firstWhere(
+      (e) => e.id == id,
+      orElse: () => tocEntries.first,
+    );
+
+    contentController.updateSelection(
+      TextSelection.collapsed(offset: entry.textOffset),
+      quill.ChangeSource.local,
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!scrollController.hasClients) {
+        return;
+      }
+      
+      final doc = contentController.document;
+      double estimatedHeight = 0.0;
+      
+      int currentOffset = 0;
+      for (final node in doc.root.children) {
+        if (currentOffset >= entry.textOffset) break;
+        
+        final style = node.style.attributes['header'];
+        if (style != null) {
+          if (style.value == 1) {
+            estimatedHeight += 28 * 1.4 + 24;
+          } else if (style.value == 2) {
+            estimatedHeight += 22 * 1.4 + 18;
+          } else {
+            estimatedHeight += 18 * 1.4 + 14;
+          }
+        } else {
+          final textLength = node.toPlainText().length;
+          final lines = (textLength / 80).ceil().clamp(1, 10);
+          estimatedHeight += lines * (14 * 1.6 + 16);
+        }
+        
+        currentOffset += node.length;
+      }
+      
+      final targetScroll = (estimatedHeight - 100).clamp(
+        0.0,
+        scrollController.position.maxScrollExtent,
+      );
+      
+      scrollController.animateTo(
+        targetScroll,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeInOutCubic,
+      );
+    });
+  }
 
   Future<void> _loadInfoboxBlocks(Article article) async {
     final db = await AppDatabase.database;
