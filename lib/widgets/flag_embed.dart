@@ -1,0 +1,45 @@
+// Replace lib/widgets/flag_embed.dart with this updated version
+
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter_quill/flutter_quill.dart' as quill;
+import 'package:arted/flags.dart';
+
+class FlagEmbedBuilder extends quill.EmbedBuilder {
+  @override
+  String get key => 'flag';
+
+  @override
+  Widget build(
+    BuildContext context,
+    quill.EmbedContext embedContext,
+  ) {
+    print('🏁 FlagEmbedBuilder.build called');
+    print('   Node value: ${embedContext.node.value}');
+    print('   Node data: ${embedContext.node.value.data}');
+    
+    // Extract flag code from the embed node
+    final flagCode = embedContext.node.value.data as String;
+    print('   Flag code: $flagCode');
+    
+    final flagFile = FlagsFeature.getFlagFile(flagCode);
+
+    if (flagFile != null && flagFile.existsSync()) {
+      print('   ✅ Flag file found: ${flagFile.path}');
+      return SizedBox(
+        height: FlagsFeature.flagHeight,
+        child: Image.file(flagFile, fit: BoxFit.contain),
+      );
+    }
+
+    // Fallback if flag not found
+    print('   ❌ Flag file not found');
+    return Text(
+      '[flag:$flagCode]',
+      style: const TextStyle(color: Colors.grey),
+    );
+  }
+
+  @override
+  bool get expanded => false;
+}
