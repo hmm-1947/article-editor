@@ -9,6 +9,7 @@ class ArticleEditor extends StatefulWidget {
   final FocusNode focusNode;
   final bool isViewMode;
   final Function(String)? onLinkTap;
+  final String? articleId; // ✅ Added for proper rebuilding
 
   const ArticleEditor({
     super.key,
@@ -17,6 +18,7 @@ class ArticleEditor extends StatefulWidget {
     required this.focusNode,
     required this.isViewMode,
     this.onLinkTap,
+    this.articleId, // ✅ Added
   });
 
   @override
@@ -29,14 +31,18 @@ class _ArticleEditorState extends State<ArticleEditor> {
   @override
   void initState() {
     super.initState();
-    print('📝 ArticleEditor initState - onLinkTap is ${widget.onLinkTap != null ? "SET" : "NULL"}');
+    print('📝 ArticleEditor initState - articleId: ${widget.articleId}');
+    print('   onLinkTap is ${widget.onLinkTap != null ? "SET" : "NULL"}');
     _disabledFocusNode = FocusNode(canRequestFocus: false);
   }
 
   @override
   void didUpdateWidget(ArticleEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
-    print('🔄 ArticleEditor didUpdateWidget - onLinkTap is ${widget.onLinkTap != null ? "SET" : "NULL"}');
+    print('🔄 ArticleEditor didUpdateWidget');
+    print('   Old articleId: ${oldWidget.articleId}');
+    print('   New articleId: ${widget.articleId}');
+    print('   onLinkTap is ${widget.onLinkTap != null ? "SET" : "NULL"}');
   }
 
   @override
@@ -98,6 +104,7 @@ class _ArticleEditorState extends State<ArticleEditor> {
           }
         },
         child: quill.QuillEditor.basic(
+          key: ValueKey('quill_${widget.articleId ?? 'none'}'), // ✅ Force rebuild on article change
           controller: widget.controller,
           focusNode: widget.isViewMode ? _disabledFocusNode : widget.focusNode,
           config: quill.QuillEditorConfig(
