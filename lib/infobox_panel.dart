@@ -19,6 +19,12 @@ class InfoboxBlock {
   quill.QuillController? textController;
   quill.QuillController? captionController;
 
+  // ADD FOCUS NODES
+  FocusNode? leftFocusNode;
+  FocusNode? rightFocusNode;
+  FocusNode? textFocusNode;
+  FocusNode? captionFocusNode;
+
   // JSON storage
   String? leftJson;
   String? rightJson;
@@ -94,6 +100,11 @@ class InfoboxBlock {
     rightController?.dispose();
     textController?.dispose();
     captionController?.dispose();
+    // DISPOSE FOCUS NODES
+    leftFocusNode?.dispose();
+    rightFocusNode?.dispose();
+    textFocusNode?.dispose();
+    captionFocusNode?.dispose();
   }
 }
 
@@ -294,6 +305,9 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         document: doc,
         selection: const TextSelection.collapsed(offset: 0),
       );
+      // INITIALIZE FOCUS NODE
+      block.leftFocusNode = FocusNode();
+      
       block.leftController!.addListener(() {
         final newJson = _documentToJson(block.leftController!.document);
         if (newJson != block.leftJson) {
@@ -309,6 +323,9 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         document: doc,
         selection: const TextSelection.collapsed(offset: 0),
       );
+      // INITIALIZE FOCUS NODE
+      block.rightFocusNode = FocusNode();
+      
       block.rightController!.addListener(() {
         final newJson = _documentToJson(block.rightController!.document);
         if (newJson != block.rightJson) {
@@ -324,6 +341,9 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         document: doc,
         selection: const TextSelection.collapsed(offset: 0),
       );
+      // INITIALIZE FOCUS NODE
+      block.textFocusNode = FocusNode();
+      
       block.textController!.addListener(() {
         final newJson = _documentToJson(block.textController!.document);
         if (newJson != block.textJson) {
@@ -339,6 +359,8 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         document: doc,
         selection: const TextSelection.collapsed(offset: 0),
       );
+      // INITIALIZE FOCUS NODE
+      block.captionFocusNode = FocusNode();
 
       block.captionController!.addListener(() {
         final newJson = _documentToJson(block.captionController!.document);
@@ -385,7 +407,6 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
   }
 
   Widget _renderFlag(String flagCode) {
-    // This renders a flag widget for the given country/region code
     if (!_flagsInitialized) {
       return Text(
         '[$flagCode]',
@@ -393,7 +414,6 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
       );
     }
 
-    // Get the flag file from FlagsFeature
     final flagFile = FlagsFeature.getFlagFile(flagCode);
 
     if (flagFile != null && flagFile.existsSync()) {
@@ -403,7 +423,6 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
       );
     }
 
-    // Fallback if flag not found
     return Text(
       '[$flagCode]',
       style: const TextStyle(color: Colors.white70, fontSize: 10),
@@ -458,11 +477,12 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
     );
   }
 
-  Widget _buildQuillEditor(quill.QuillController controller) {
+  Widget _buildQuillEditor(quill.QuillController controller, FocusNode focusNode) {
     controller.readOnly = widget.isViewMode;
 
     return quill.QuillEditor.basic(
       controller: controller,
+      focusNode: focusNode, // ADD FOCUS NODE
       config: quill.QuillEditorConfig(
         scrollable: false,
         autoFocus: false,
@@ -561,17 +581,28 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
             ),
           const SizedBox(height: 8),
 
-          // Caption is center-aligned
           widget.isViewMode
               ? _buildCenteredCaption(
                   block.captionController ?? quill.QuillController.basic(),
                 )
-              : Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.grey.shade700),
-                    borderRadius: BorderRadius.circular(4),
+              : GestureDetector(
+                  onTap: () {
+                    // REQUEST FOCUS ON TAP
+                    block.captionFocusNode?.requestFocus();
+                    setState(() {
+                      _activeController = block.captionController;
+                    });
+                  },
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade700),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: _buildQuillEditor(
+                      block.captionController!,
+                      block.captionFocusNode!,
+                    ),
                   ),
-                  child: _buildQuillEditor(block.captionController!),
                 ),
         ],
       ),
@@ -599,14 +630,13 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
       return const SizedBox();
     }
 
-    // Build widgets from the Quill document delta
     final widgets = <Widget>[];
     final delta = controller.document.toDelta();
 
     for (final op in delta.toList()) {
       if (op.data is String) {
         final text = op.data as String;
-        if (text == '\n') continue; // Skip newlines
+        if (text == '\n') continue;
 
         final attributes = op.attributes;
 
@@ -709,6 +739,7 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
           Expanded(
             child: _buildQuillEditor(
               block.leftController ?? quill.QuillController.basic(),
+              block.leftFocusNode ?? FocusNode(),
             ),
           ),
           if (showSeparator)
@@ -721,6 +752,7 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
           Expanded(
             child: _buildQuillEditor(
               block.rightController ?? quill.QuillController.basic(),
+              block.rightFocusNode ?? FocusNode(),
             ),
           ),
         ],
@@ -731,12 +763,24 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
-          child: Container(
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey.shade700),
-              borderRadius: BorderRadius.circular(4),
+          child: GestureDetector(
+            onTap: () {
+              // REQUEST FOCUS ON TAP
+              block.leftFocusNode?.requestFocus();
+              setState(() {
+                _activeController = block.leftController;
+              });
+            },
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade700),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: _buildQuillEditor(
+                block.leftController!,
+                block.leftFocusNode!,
+              ),
             ),
-            child: _buildQuillEditor(block.leftController!),
           ),
         ),
         if (showSeparator)
@@ -747,12 +791,24 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
             color: Colors.grey.shade500,
           ),
         Expanded(
-          child: Container(
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey.shade700),
-              borderRadius: BorderRadius.circular(4),
+          child: GestureDetector(
+            onTap: () {
+              // REQUEST FOCUS ON TAP
+              block.rightFocusNode?.requestFocus();
+              setState(() {
+                _activeController = block.rightController;
+              });
+            },
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade700),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: _buildQuillEditor(
+                block.rightController!,
+                block.rightFocusNode!,
+              ),
             ),
-            child: _buildQuillEditor(block.rightController!),
           ),
         ),
       ],
@@ -764,16 +820,29 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
       return Center(
         child: _buildQuillEditor(
           block.textController ?? quill.QuillController.basic(),
+          block.textFocusNode ?? FocusNode(),
         ),
       );
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade700),
-        borderRadius: BorderRadius.circular(4),
+    return GestureDetector(
+      onTap: () {
+        // REQUEST FOCUS ON TAP
+        block.textFocusNode?.requestFocus();
+        setState(() {
+          _activeController = block.textController;
+        });
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade700),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: _buildQuillEditor(
+          block.textController!,
+          block.textFocusNode!,
+        ),
       ),
-      child: _buildQuillEditor(block.textController!),
     );
   }
 
