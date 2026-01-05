@@ -1,10 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui' show FontFeature;
+import 'dart:ui';
 import 'package:arted/flags.dart';
 import 'package:arted/widgets/flag_embed.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
@@ -170,24 +169,26 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
     if (json == null || json.isEmpty) {
       return quill.Document();
     }
-    
+
     try {
       final decoded = jsonDecode(json);
       if (decoded is List) {
         return quill.Document.fromJson(decoded);
       }
     } catch (e) {
-      print('⚠️ Legacy format detected, converting: "${json.substring(0, json.length.clamp(0, 50))}"');
+      print(
+        '⚠️ Legacy format detected, converting: "${json.substring(0, json.length.clamp(0, 50))}"',
+      );
       final operations = _markdownToDelta(json);
       return quill.Document.fromJson(operations);
     }
-    
+
     return quill.Document();
   }
 
   static List<Map<String, dynamic>> _markdownToDelta(String markdown) {
     final operations = <Map<String, dynamic>>[];
-    
+
     if (markdown.isEmpty) {
       operations.add({'insert': '\n'});
       return operations;
@@ -205,37 +206,56 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
       }
 
       final token = match.group(0)!;
-      
+
       if (token.startsWith('**')) {
         final text = token.substring(2, token.length - 2);
-        operations.add({'insert': text, 'attributes': {'bold': true}});
+        operations.add({
+          'insert': text,
+          'attributes': {'bold': true},
+        });
       } else if (token.startsWith('__')) {
         final text = token.substring(2, token.length - 2);
-        operations.add({'insert': text, 'attributes': {'underline': true}});
+        operations.add({
+          'insert': text,
+          'attributes': {'underline': true},
+        });
       } else if (token.startsWith('~~')) {
         final text = token.substring(2, token.length - 2);
-        operations.add({'insert': text, 'attributes': {'strike': true}});
+        operations.add({
+          'insert': text,
+          'attributes': {'strike': true},
+        });
       } else if (token.startsWith('^')) {
         final text = token.substring(1, token.length - 1);
-        operations.add({'insert': text, 'attributes': {'script': 'super'}});
+        operations.add({
+          'insert': text,
+          'attributes': {'script': 'super'},
+        });
       } else if (token.startsWith('~') && !token.startsWith('~~')) {
         final text = token.substring(1, token.length - 1);
-        operations.add({'insert': text, 'attributes': {'script': 'sub'}});
+        operations.add({
+          'insert': text,
+          'attributes': {'script': 'sub'},
+        });
       } else if (token.startsWith('_') && !token.startsWith('__')) {
         final text = token.substring(1, token.length - 1);
-        operations.add({'insert': text, 'attributes': {'italic': true}});
+        operations.add({
+          'insert': text,
+          'attributes': {'italic': true},
+        });
       } else if (token.startsWith('[[')) {
         final content = token.substring(2, token.length - 2);
         final parts = content.split('|');
         final displayText = parts.first;
         final linkTarget = parts.length > 1 ? parts.last : parts.first;
-        operations.add({'insert': displayText, 'attributes': {'link': linkTarget}});
+        operations.add({
+          'insert': displayText,
+          'attributes': {'link': linkTarget},
+        });
       } else if (token.startsWith('[flag:')) {
         final flagCode = token.substring(6, token.length - 1);
         operations.add({
-          'insert': {
-            'flag': flagCode
-          }
+          'insert': {'flag': flagCode},
         });
       }
 
@@ -245,7 +265,7 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
     if (lastIndex < markdown.length) {
       operations.add({'insert': markdown.substring(lastIndex)});
     }
-    
+
     if (operations.isNotEmpty) {
       final lastOp = operations.last;
       if (lastOp['insert'] is String) {
@@ -328,30 +348,35 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         }
       });
     }
-    
+
     void _trackController(quill.QuillController controller) {
       if (_trackedControllers.contains(controller)) {
         return;
       }
       _trackedControllers.add(controller);
-      
+
       controller.addListener(() {
         if (mounted && _activeController != controller) {
           setState(() {
             _activeController = controller;
-            print('🎯 Active controller changed to: ${_getControllerName(controller, block)}');
+            print(
+              '🎯 Active controller changed to: ${_getControllerName(controller, block)}',
+            );
           });
         }
       });
     }
-    
+
     _trackController(block.leftController!);
     _trackController(block.rightController!);
     _trackController(block.textController!);
     _trackController(block.captionController!);
   }
-  
-  String _getControllerName(quill.QuillController controller, InfoboxBlock block) {
+
+  String _getControllerName(
+    quill.QuillController controller,
+    InfoboxBlock block,
+  ) {
     if (controller == block.leftController) return 'left';
     if (controller == block.rightController) return 'right';
     if (controller == block.textController) return 'text';
@@ -367,28 +392,26 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         style: const TextStyle(color: Colors.white70, fontSize: 10),
       );
     }
-    
+
     // Get the flag file from FlagsFeature
     final flagFile = FlagsFeature.getFlagFile(flagCode);
-    
+
     if (flagFile != null && flagFile.existsSync()) {
       return SizedBox(
         height: FlagsFeature.flagHeight,
         child: Image.file(flagFile, fit: BoxFit.contain),
       );
     }
-    
+
     // Fallback if flag not found
     return Text(
       '[$flagCode]',
-      style: const TextStyle(
-        color: Colors.white70,
-        fontSize: 10,
-      ),
+      style: const TextStyle(color: Colors.white70, fontSize: 10),
     );
   }
 
   Widget _buildBlock(InfoboxBlock block) {
+    _ensureControllers(block);
     if (!widget.isViewMode) {
       _ensureControllers(block);
     }
@@ -437,7 +460,7 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
 
   Widget _buildQuillEditor(quill.QuillController controller) {
     controller.readOnly = widget.isViewMode;
-    
+
     return quill.QuillEditor.basic(
       controller: controller,
       config: quill.QuillEditorConfig(
@@ -446,16 +469,14 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         expands: false,
         padding: const EdgeInsets.all(8),
         embedBuilders: [FlagEmbedBuilder()],
-        onLaunchUrl: widget.onOpenLink != null ? (url) async {
-          widget.onOpenLink!(url);
-        } : null,
+        onLaunchUrl: widget.onOpenLink != null
+            ? (url) async {
+                widget.onOpenLink!(url);
+              }
+            : null,
         customStyles: quill.DefaultStyles(
           paragraph: quill.DefaultTextBlockStyle(
-            const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              height: 1.5,
-            ),
+            const TextStyle(color: Colors.white, fontSize: 12, height: 1.5),
             quill.HorizontalSpacing.zero,
             const quill.VerticalSpacing(4, 4),
             const quill.VerticalSpacing(0, 0),
@@ -539,7 +560,7 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
               ),
             ),
           const SizedBox(height: 8),
-          
+
           // Caption is center-aligned
           widget.isViewMode
               ? _buildCenteredCaption(
@@ -573,28 +594,28 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
 
   Widget _buildCenteredCaption(quill.QuillController controller) {
     final plainText = controller.document.toPlainText().trim();
-    
+
     if (plainText.isEmpty) {
       return const SizedBox();
     }
-    
+
     // Build widgets from the Quill document delta
     final widgets = <Widget>[];
     final delta = controller.document.toDelta();
-    
+
     for (final op in delta.toList()) {
       if (op.data is String) {
         final text = op.data as String;
         if (text == '\n') continue; // Skip newlines
-        
+
         final attributes = op.attributes;
-        
+
         TextStyle style = const TextStyle(
           color: Colors.white,
           fontSize: 12,
           height: 1.5,
         );
-        
+
         if (attributes != null) {
           if (attributes['bold'] == true) {
             style = style.copyWith(fontWeight: FontWeight.bold);
@@ -612,9 +633,9 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
             final linkTarget = attributes['link'] as String;
             widgets.add(
               GestureDetector(
-                onTap: widget.onOpenLink != null 
-                  ? () => widget.onOpenLink!(linkTarget)
-                  : null,
+                onTap: widget.onOpenLink != null
+                    ? () => widget.onOpenLink!(linkTarget)
+                    : null,
                 child: Text(
                   text,
                   style: style.copyWith(
@@ -639,7 +660,7 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
             );
           }
         }
-        
+
         widgets.add(Text(text, style: style));
       } else if (op.data is Map && (op.data as Map).containsKey('flag')) {
         final flagCode = (op.data as Map)['flag'] as String;
@@ -651,7 +672,7 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         );
       }
     }
-    
+
     return Container(
       padding: const EdgeInsets.all(8),
       child: Wrap(
@@ -686,7 +707,9 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: _buildQuillEditor(block.leftController ?? quill.QuillController.basic()),
+            child: _buildQuillEditor(
+              block.leftController ?? quill.QuillController.basic(),
+            ),
           ),
           if (showSeparator)
             Container(
@@ -696,7 +719,9 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
               color: Colors.grey.shade500,
             ),
           Expanded(
-            child: _buildQuillEditor(block.rightController ?? quill.QuillController.basic()),
+            child: _buildQuillEditor(
+              block.rightController ?? quill.QuillController.basic(),
+            ),
           ),
         ],
       );
@@ -737,7 +762,9 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
   Widget _centeredTextBlock(InfoboxBlock block) {
     if (widget.isViewMode) {
       return Center(
-        child: _buildQuillEditor(block.textController ?? quill.QuillController.basic()),
+        child: _buildQuillEditor(
+          block.textController ?? quill.QuillController.basic(),
+        ),
       );
     }
 
@@ -786,7 +813,9 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Click in a text field first, then click the flag button'),
+                      content: Text(
+                        'Click in a text field first, then click the flag button',
+                      ),
                       duration: Duration(seconds: 2),
                     ),
                   );
@@ -800,13 +829,15 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
                 if (_activeController == null) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Click in a text field first, then click the link button'),
+                      content: Text(
+                        'Click in a text field first, then click the link button',
+                      ),
                       duration: Duration(seconds: 2),
                     ),
                   );
                   return;
                 }
-                
+
                 if (widget.onPickArticle == null) return;
 
                 final title = await widget.onPickArticle!();
@@ -822,17 +853,16 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
     );
   }
 
-  void _insertLinkIntoQuill(quill.QuillController controller, String targetTitle) {
+  void _insertLinkIntoQuill(
+    quill.QuillController controller,
+    String targetTitle,
+  ) {
     final selection = controller.selection;
     final index = selection.baseOffset;
     final length = selection.extentOffset - selection.baseOffset;
 
     if (length > 0) {
-      controller.formatText(
-        index,
-        length,
-        quill.LinkAttribute(targetTitle),
-      );
+      controller.formatText(index, length, quill.LinkAttribute(targetTitle));
     } else {
       controller.document.insert(index, targetTitle);
       controller.formatText(

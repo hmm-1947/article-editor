@@ -1,5 +1,4 @@
 import 'package:arted/flags.dart';
-import 'package:arted/text_formatter.dart';
 import 'package:flutter/material.dart';
 
 final Map<String, GlobalKey> headingKeys = {};
