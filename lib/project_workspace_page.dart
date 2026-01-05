@@ -1079,15 +1079,28 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
 
                                             // ✅ Handle link clicks in view mode
                                             onOpenLink: (title) {
+                                              // Strip URL prefix that flutter_quill adds
+                                              String cleanTitle = title;
+                                              if (title.startsWith(
+                                                'https://',
+                                              )) {
+                                                cleanTitle = title.substring(8);
+                                              } else if (title.startsWith(
+                                                'http://',
+                                              )) {
+                                                cleanTitle = title.substring(7);
+                                              }
+
                                               print(
-                                                '🔗 Infobox link clicked: $title',
+                                                '🔍 Looking for article: "$cleanTitle" (original: "$title")',
                                               );
 
                                               final target = controller.articles
                                                   .where(
                                                     (a) =>
                                                         a.title.toLowerCase() ==
-                                                        title.toLowerCase(),
+                                                        cleanTitle
+                                                            .toLowerCase(),
                                                   )
                                                   .cast<Article?>()
                                                   .firstOrNull;
@@ -1099,17 +1112,10 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                                                 _switchArticleSafely(target);
                                               } else {
                                                 print(
-                                                  '❌ Article not found: $title',
+                                                  '❌ Article not found among ${controller.articles.length} articles',
                                                 );
-                                                ScaffoldMessenger.of(
-                                                  context,
-                                                ).showSnackBar(
-                                                  SnackBar(
-                                                    content: Text(
-                                                      'Article "$title" not found',
-                                                    ),
-                                                    backgroundColor: Colors.red,
-                                                  ),
+                                                print(
+                                                  '   Available: ${controller.articles.map((a) => a.title).join(", ")}',
                                                 );
                                               }
                                             },
