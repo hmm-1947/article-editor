@@ -382,37 +382,40 @@ class WorkspaceController {
   }
 
   // ✅ FIXED: Scan for BOTH header attribute AND size-based headings (backward compatibility)
-  void rebuildTocFromContent() {
-    print('🔍 === TOC REBUILD STARTING ===');
-    final newEntries = <TocEntry>[];
+void rebuildTocFromContent() {
+  print('🔍 === TOC REBUILD STARTING ===');
+  final newEntries = <TocEntry>[];
 
-    final doc = contentController.document;
-    int charOffset = 0;
-    int headingIndex = 0;
+  final doc = contentController.document;
+  int charOffset = 0;
+  int headingIndex = 0;
 
-    for (final node in doc.root.children) {
-      if (node is! quill.Line) {
-        print('  Line ${headingIndex + 1}: Not a Line node, skipping');
+  for (final node in doc.root.children) {
+    // 🐛 DEBUG: Log the actual node type
+    print('  Node ${headingIndex + 1}: type=${node.runtimeType}');
+    
+    try {
+      // ✅ Get the plain text first
+      final fullText = node.toPlainText().replaceAll('\n', '').trim();
+      
+      if (fullText.isEmpty) {
         charOffset += node.length;
         continue;
       }
 
       bool isHeading = false;
-      String headingText = '';
 
       // ✅ METHOD 1: Check for NEW STYLE - block-level header attribute
       final headerAttr = node.style.attributes['header'];
       if (headerAttr?.value == 2) {
         isHeading = true;
-        headingText = node.toPlainText().replaceAll('\n', '').trim();
-        print('  ✅ Found NEW-STYLE header: "$headingText"');
+        print('  ✅ Found NEW-STYLE header: "$fullText"');
       }
 
-      // ✅ METHOD 2: Check for OLD STYLE - size=19 + bold
+      // ✅ METHOD 2: Check for OLD STYLE - size=19 + bold (anywhere in the node)
       if (!isHeading) {
         bool hasSize19 = false;
         bool hasBold = false;
-        final buffer = StringBuffer();
 
         final delta = node.toDelta().toList();
         for (final op in delta) {
@@ -427,47 +430,83 @@ class WorkspaceController {
               hasBold = true;
             }
           }
-
-          if (op.data is String) {
-            final text = op.data as String;
-            if (text != '\n' && text.trim().isNotEmpty) {
-              buffer.write(text);
-            }
-          }
+          
+          // Break early if we found both
+          if (hasSize19 && hasBold) break;
         }
 
         if (hasSize19 && hasBold) {
           isHeading = true;
-          headingText = buffer.toString().trim();
-          print('  ✅ Found OLD-STYLE header (size=19): "$headingText"');
+          print('  ✅ Found OLD-STYLE header (size=19): "$fullText"');
         }
       }
 
       // Add to TOC if it's a heading
-      if (isHeading && headingText.isNotEmpty) {
-        newEntries.add(
-          TocEntry(
-            id: 'h_$headingIndex',
-            title: headingText,
-            textOffset: charOffset,
-            level: 1,
-          ),
-        );
-        headingIndex++;
+      if (isHeading) {
+        // ✅ Extract ONLY the text portions that have size=19
+        final delta = node.toDelta().toList();
+        final headingTextParts = <String>[];
+        bool lastWasHeading = false;
+        
+        for (final op in delta) {
+          if (op.data is! String) continue;
+          
+          final text = op.data as String;
+          final attrs = op.attributes;
+          final size = attrs?['size'];
+          
+          // Check if this text has size=19
+          final hasHeadingSize = (size == 19 || size == '19');
+          
+          if (hasHeadingSize) {
+            // This is heading text - include it
+            headingTextParts.add(text);
+            lastWasHeading = true;
+          } else if (text.contains('\n') && lastWasHeading) {
+            // This is a newline between headings - preserve it
+            headingTextParts.add('\n');
+          }
+        }
+        
+        // Join all heading text parts and split by newlines
+        final headingText = headingTextParts.join('');
+        final headingLines = headingText.split('\n')
+            .map((line) => line.trim())
+            .where((line) => line.isNotEmpty)
+            .toList();
+        
+        print('  🔍 Extracted size=19 text, split into ${headingLines.length} lines: $headingLines');
+        
+        for (final headingLine in headingLines) {
+          newEntries.add(
+            TocEntry(
+              id: 'h_$headingIndex',
+              title: headingLine,
+              textOffset: charOffset,
+              level: 1,
+            ),
+          );
+          headingIndex++;
+          print('  📌 Added to TOC: "$headingLine"');
+        }
       }
-
-      charOffset += node.length;
+    } catch (e) {
+      // ⚠️ If we can't process this node, just log and continue
+      print('  ⚠️ Error processing node: $e');
     }
 
-    tocEntries
-      ..clear()
-      ..addAll(newEntries);
-
-    tocVersion.value++;
-    
-    print('🔄 TOC COMPLETE: ${tocEntries.length} headings found (version ${tocVersion.value})');
-    print('=== TOC REBUILD COMPLETE ===\n');
+    charOffset += node.length;
   }
+
+  tocEntries
+    ..clear()
+    ..addAll(newEntries);
+
+  tocVersion.value++;
+  
+  print('🔄 TOC COMPLETE: ${tocEntries.length} headings found (version ${tocVersion.value})');
+  print('=== TOC REBUILD COMPLETE ===\n');
+}
 
   void scrollToHeading(String id, ScrollController scrollController) {
     final entry = tocEntries.firstWhere(
