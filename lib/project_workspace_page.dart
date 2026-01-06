@@ -493,68 +493,9 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
     _refreshUI();
   }
 
-  Future<void> _showAddFlagDialog() async {
-    final tagCtrl = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: panel,
-        title: const Text("Add Flag", style: TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: tagCtrl,
-              textCapitalization: TextCapitalization.characters,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                labelText: "Flag Tag (e.g. IN, USA)",
-                labelStyle: TextStyle(color: grey),
-              ),
-            ),
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.image),
-              label: const Text("Choose Image"),
-              onPressed: () async {
-                final tag = tagCtrl.text.trim().toUpperCase();
-                if (tag.isEmpty) return;
-
-                await FlagsFeature.pickAndSaveFlag(tag);
-                Navigator.pop(context);
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _insertFlagIntoQuill() {
     _showFlagPickerForController(
-      null,
-      onFlagSelected: (code) {
-        final index = controller.contentController.selection.baseOffset;
-
-        final embed = {'flag': code};
-
-        controller.contentController.document.insert(
-          index,
-          quill.Embeddable.fromJson(embed)!,
-        );
-
-        controller.contentController.updateSelection(
-          TextSelection.collapsed(offset: index + 1),
-          quill.ChangeSource.local,
-        );
-      },
+      controller.contentController, // ✅ pass QuillController directly
     );
   }
 
@@ -598,14 +539,9 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
   // Complete replacement for _showFlagPickerForController in project_workspace_page.dart
   // Place this in the _ProjectWorkspacePageState class
 
-  void _showFlagPickerForController(
-    dynamic
-    targetController, { // ✅ Changed from TextEditingController? to dynamic
-    Function(String code)? onFlagSelected,
-  }) async {
-    final allFlags = await FlagsFeature.getFlags();
+  void _showFlagPickerForController(quill.QuillController controller) async {
+    final allFlags = await FlagsFeature.loadAllFlags();
     String query = "";
-    final recentCodes = FlagsFeature.getRecentFlags();
 
     showDialog(
       context: context,
@@ -613,7 +549,8 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
         return StatefulBuilder(
           builder: (context, setLocalState) {
             final filtered = allFlags.entries.where((e) {
-              return query.isEmpty || e.key.toLowerCase().contains(query);
+              return query.isEmpty ||
+                  e.key.toLowerCase().contains(query.toLowerCase());
             }).toList();
 
             Widget buildFlagItem(String code, File file) {
@@ -660,40 +597,16 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                 child: InkWell(
                   borderRadius: BorderRadius.circular(6),
                   onTap: () {
-                    if (onFlagSelected != null) {
-                      // Custom callback provided
-                      onFlagSelected(code);
-                      Navigator.pop(context);
-                    } else if (targetController != null) {
-                      // ✅ Handle both QuillController and TextEditingController
-                      if (targetController is quill.QuillController) {
-                        // Insert flag into Quill editor - same format as main editor
-                        final index = targetController.selection.baseOffset;
+                    final index = controller.selection.baseOffset;
+                    final embed = quill.Embeddable.fromJson({'flag': code});
 
-                        print('🚩 Inserting flag: $code at index $index');
+                    controller.document.insert(index, embed);
+                    controller.updateSelection(
+                      TextSelection.collapsed(offset: index + 1),
+                      quill.ChangeSource.local,
+                    );
 
-                        // ✅ Use the same format as main editor
-                        final embed = {'flag': code};
-
-                        final embeddable = quill.Embeddable.fromJson(embed);
-                        if (embeddable != null) {
-                          targetController.document.insert(index, embeddable);
-
-                          targetController.updateSelection(
-                            TextSelection.collapsed(offset: index + 1),
-                            quill.ChangeSource.local,
-                          );
-
-                          print('✅ Flag inserted successfully');
-                        } else {
-                          print('❌ Failed to create embeddable from: $embed');
-                        }
-                      } else if (targetController is TextEditingController) {
-                        // Legacy TextEditingController support (if any remain)
-                        FlagsFeature.insertFlagAtCursor(targetController, code);
-                      }
-                      Navigator.pop(context);
-                    }
+                    Navigator.pop(context);
                   },
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -724,28 +637,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                 height: 420,
                 child: Column(
                   children: [
-                    Row(
-                      children: [
-                        const Text(
-                          "Insert Flag (Long-press to delete)",
-                          style: TextStyle(color: Colors.white, fontSize: 14),
-                        ),
-                        const Spacer(),
-                        IconButton(
-                          icon: const Icon(Icons.add, color: Colors.white),
-                          tooltip: "Add new flag",
-                          onPressed: () async {
-                            await _showAddFlagDialog();
-                            final refreshed = await FlagsFeature.loadAllFlags();
-                            setLocalState(() {
-                              allFlags
-                                ..clear()
-                                ..addAll(refreshed);
-                            });
-                          },
-                        ),
-                      ],
-                    ),
                     TextField(
                       autofocus: true,
                       style: const TextStyle(color: Colors.white),
@@ -761,57 +652,20 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                     ),
                     const SizedBox(height: 12),
                     Expanded(
-                      child: SingleChildScrollView(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (recentCodes.isNotEmpty) ...[
-                              const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 8),
-                                child: Text(
-                                  "Recent",
-                                  style: TextStyle(color: grey, fontSize: 12),
-                                ),
-                              ),
-                              GridView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: recentCodes.length,
-                                gridDelegate:
-                                    const SliverGridDelegateWithFixedCrossAxisCount(
-                                      crossAxisCount: 6,
-                                      mainAxisSpacing: 12,
-                                      crossAxisSpacing: 12,
-                                      childAspectRatio: 0.9,
-                                    ),
-                                itemBuilder: (_, i) {
-                                  final code = recentCodes[i];
-                                  final file = allFlags[code];
-                                  if (file == null) return const SizedBox();
-                                  return buildFlagItem(code, file);
-                                },
-                              ),
-                              const Divider(color: Colors.grey),
-                            ],
-                            GridView.builder(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              itemCount: filtered.length,
-                              gridDelegate:
-                                  const SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: 6,
-                                    mainAxisSpacing: 12,
-                                    crossAxisSpacing: 12,
-                                    childAspectRatio: 0.9,
-                                  ),
-                              itemBuilder: (_, i) {
-                                final code = filtered[i].key;
-                                final file = filtered[i].value;
-                                return buildFlagItem(code, file);
-                              },
+                      child: GridView.builder(
+                        itemCount: filtered.length,
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 6,
+                              mainAxisSpacing: 12,
+                              crossAxisSpacing: 12,
+                              childAspectRatio: 0.9,
                             ),
-                          ],
-                        ),
+                        itemBuilder: (_, i) {
+                          final code = filtered[i].key;
+                          final file = filtered[i].value;
+                          return buildFlagItem(code, file);
+                        },
                       ),
                     ),
                   ],
@@ -1901,8 +1755,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                       _insertLinkIntoQuill(target.title);
                     }
                   },
-                  onPauseTocRebuild: controller.pauseTocRebuild, // ADD THIS
-                  onResumeTocRebuild: controller.resumeTocRebuild, // ADD THIS
                 ),
 
               const SizedBox(height: 12),
@@ -1914,7 +1766,7 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                   focusNode: _editorFocusNode,
                   isViewMode: controller.isViewMode,
                   onLinkTap: (url) {
-                    print('🔗 Link tapped: $url');
+                    print('Link tapped: $url');
 
                     // Strip any URL crap Quill adds
                     String title = url
@@ -1922,7 +1774,7 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                         .replaceAll('%20', ' ')
                         .trim();
 
-                    print('🔍 Looking for article: $title');
+                    print('Looking for article: $title');
 
                     // Just open the damn article
                     final target = controller.articles
@@ -1933,10 +1785,10 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                         .firstOrNull;
 
                     if (target != null) {
-                      print('✅ Found article: ${target.title}');
+                      print('Found article: ${target.title}');
                       _switchArticleSafely(target);
                     } else {
-                      print('❌ Article not found: $title');
+                      print('Article not found: $title');
                       // Show available articles for debugging
                       print(
                         'Available articles: ${controller.articles.map((a) => a.title).join(", ")}',
@@ -2064,36 +1916,43 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                               top: 6,
                               bottom: 6,
                             ),
-                            child: Row(
-                              children: [
-                                // Level indicator dot
-                                Container(
-                                  width: 4,
-                                  height: 4,
-                                  margin: const EdgeInsets.only(right: 8),
-                                  decoration: BoxDecoration(
-                                    color: entry.level == 1
-                                        ? Colors.blue
-                                        : Colors.grey,
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                Expanded(
-                                  child: Text(
-                                    cleanTitle,
-                                    style: TextStyle(
-                                      color: Colors
-                                          .white, // ✅ Changed from grey to white
-                                      fontSize: entry.level == 1 ? 13 : 12,
-                                      fontWeight: entry.level == 1
-                                          ? FontWeight.w600
-                                          : FontWeight.normal,
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                final canShowDot = constraints.maxWidth >= 14;
+
+                                return Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (canShowDot)
+                                      Container(
+                                        width: 4,
+                                        height: 4,
+                                        margin: const EdgeInsets.only(right: 8),
+                                        decoration: BoxDecoration(
+                                          color: entry.level == 1
+                                              ? Colors.blue
+                                              : Colors.grey,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+
+                                    Flexible(
+                                      child: Text(
+                                        cleanTitle,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: entry.level == 1 ? 13 : 12,
+                                          fontWeight: entry.level == 1
+                                              ? FontWeight.w600
+                                              : FontWeight.normal,
+                                        ),
+                                      ),
                                     ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
+                                  ],
+                                );
+                              },
                             ),
                           ),
                         );
@@ -2110,35 +1969,12 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
   }
 
   void _scrollToHeading(String id) {
-    // ✅ Ensure we have a valid article and scroll controller
     if (controller.selectedArticle == null) return;
     if (!articleScrollController.hasClients) {
       print('Warning: Scroll controller not ready');
       return;
     }
-
-    // ✅ Call the controller's scroll method
     controller.scrollToHeading(id, articleScrollController);
-
-    // ✅ Find the entry for better feedback
-    final entry = controller.tocEntries.firstWhere(
-      (e) => e.id == id,
-      orElse: () => controller.tocEntries.first,
-    );
-
-    // ✅ Show feedback with the cleaned title
-    final cleanTitle = _cleanTocTitle(entry.title);
-
-    // Optional: Show a brief highlight or feedback
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Scrolling to: $cleanTitle'),
-        duration: const Duration(milliseconds: 1000),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.only(bottom: 60, left: 20, right: 20),
-        backgroundColor: Colors.blueGrey.withOpacity(0.9),
-      ),
-    );
   }
 
   Widget _edgeHandle({

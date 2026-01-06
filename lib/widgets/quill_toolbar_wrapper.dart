@@ -6,8 +6,6 @@ class QuillToolbarWrapper extends StatefulWidget {
   final Color panelColor;
   final VoidCallback onOpenFlagMenu;
   final VoidCallback onLink;
-  final Function()? onPauseTocRebuild; // ADD THIS
-  final Function()? onResumeTocRebuild; // ADD THIS
 
   const QuillToolbarWrapper({
     super.key,
@@ -15,11 +13,7 @@ class QuillToolbarWrapper extends StatefulWidget {
     required this.panelColor,
     required this.onOpenFlagMenu,
     required this.onLink,
-    this.onPauseTocRebuild, // ADD THIS
-    this.onResumeTocRebuild, // ADD THIS
   });
-  
-  // ... rest of code
 
   @override
   State<QuillToolbarWrapper> createState() => _QuillToolbarWrapperState();
@@ -29,34 +23,41 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
   @override
   void initState() {
     super.initState();
-    widget.controller.addListener(_onSelectionChanged);
+    widget.controller.addListener(_refresh);
   }
 
   @override
   void dispose() {
-    widget.controller.removeListener(_onSelectionChanged);
+    widget.controller.removeListener(_refresh);
     super.dispose();
   }
 
-  void _onSelectionChanged() {
-    setState(() {});
-  }
+  void _refresh() => setState(() {});
 
-  bool _isAttributeActive(quill.Attribute attribute) {
-    final selection = widget.controller.selection;
-    if (selection.isCollapsed) return false;
-    
+  bool _isInlineActive(quill.Attribute attr) {
     final styles = widget.controller.getSelectionStyle();
-    
-    return styles.attributes.containsKey(attribute.key) &&
-           styles.attributes[attribute.key]?.value != null;
+    return styles.attributes[attr.key]?.value != null;
   }
 
+  Widget _icon(
+    IconData icon,
+    String tooltip, {
+    required VoidCallback onPressed,
+    bool active = false,
+  }) {
+    return IconButton(
+      icon: Icon(icon, size: 18, color: active ? Colors.blue : Colors.white),
+      tooltip: tooltip,
+      onPressed: onPressed,
+      padding: const EdgeInsets.all(4),
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: widget.panelColor,
         borderRadius: BorderRadius.circular(6),
@@ -67,257 +68,201 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
           spacing: 4,
           runSpacing: 4,
           children: [
-            _toggleFormatButton(Icons.format_bold, 'Bold', quill.Attribute.bold),
-            _toggleFormatButton(Icons.format_italic, 'Italic', quill.Attribute.italic),
-            _toggleFormatButton(Icons.format_underlined, 'Underline', quill.Attribute.underline),
-            _toggleFormatButton(Icons.format_strikethrough, 'Strikethrough', quill.Attribute.strikeThrough),
-            
+            _toggleInline(Icons.format_bold, 'Bold', quill.Attribute.bold),
+            _toggleInline(
+              Icons.format_italic,
+              'Italic',
+              quill.Attribute.italic,
+            ),
+            _toggleInline(
+              Icons.format_underlined,
+              'Underline',
+              quill.Attribute.underline,
+            ),
+            _toggleInline(
+              Icons.format_strikethrough,
+              'Strikethrough',
+              quill.Attribute.strikeThrough,
+            ),
             _divider(),
-            
-            _scriptButton(Icons.superscript, 'Superscript', quill.Attribute.superscript),
-            _scriptButton(Icons.subscript, 'Subscript', quill.Attribute.subscript),
-            
+            _toggleScript(
+              Icons.superscript,
+              'Superscript',
+              quill.Attribute.superscript,
+            ),
+            _toggleScript(
+              Icons.subscript,
+              'Subscript',
+              quill.Attribute.subscript,
+            ),
             _divider(),
-            
-            _headingButton(Icons.title, 'Heading'),
-            
+            _headingButton(),
             _divider(),
-            
-            _alignButton(Icons.format_align_left, 'Align Left', quill.Attribute.leftAlignment),
-            _alignButton(Icons.format_align_center, 'Align Center', quill.Attribute.centerAlignment),
-            _alignButton(Icons.format_align_right, 'Align Right', quill.Attribute.rightAlignment),
-            _alignButton(Icons.format_align_justify, 'Justify', quill.Attribute.justifyAlignment),
-            
+            _alignButton(
+              Icons.format_align_left,
+              'Align Left',
+              quill.Attribute.leftAlignment,
+            ),
+            _alignButton(
+              Icons.format_align_center,
+              'Align Center',
+              quill.Attribute.centerAlignment,
+            ),
+            _alignButton(
+              Icons.format_align_right,
+              'Align Right',
+              quill.Attribute.rightAlignment,
+            ),
+            _alignButton(
+              Icons.format_align_justify,
+              'Justify',
+              quill.Attribute.justifyAlignment,
+            ),
             _divider(),
-            
-            _customButton(Icons.link, 'Link', widget.onLink),
-            _customButton(Icons.flag, 'Flag', widget.onOpenFlagMenu),
+            _icon(Icons.link, 'Link', onPressed: widget.onLink),
+            _icon(Icons.flag, 'Flag', onPressed: widget.onOpenFlagMenu),
           ],
         ),
       ),
     );
   }
-  
-  Widget _headingButton(IconData icon, String tooltip) {
-  final selection = widget.controller.selection;
-  bool isHeading = false;
-  
-  // Check if selection has large size
-  if (!selection.isCollapsed) {
-    final styles = widget.controller.getSelectionStyle();
-    final size = styles.attributes['size']?.value;
-    isHeading = (size != null && ((size is num && size >= 22) || size == 'large'));
-  }
-  
-  return IconButton(
-    icon: Icon(
+
+  // Helper for inline format toggles (bold, italic, etc.)
+  Widget _toggleInline(IconData icon, String tooltip, quill.Attribute attr) {
+    final selection = widget.controller.selection;
+    final active = !selection.isCollapsed && _isInlineActive(attr);
+
+    return _icon(
       icon,
-      size: 18,
-      color: isHeading ? Colors.blue : Colors.white,
-    ),
-    tooltip: tooltip,
-    onPressed: () {
-      final sel = widget.controller.selection;
-      
-      // If no selection, select the entire line
-      if (sel.isCollapsed) {
-        final line = widget.controller.document.queryChild(sel.baseOffset);
-        if (line.node != null) {
-          final lineStart = line.offset;
-          final lineEnd = lineStart + line.node!.length - 1;
-          widget.controller.updateSelection(
-            TextSelection(baseOffset: lineStart, extentOffset: lineEnd),
-            quill.ChangeSource.local,
-          );
-        }
-      }
-      
-      print('📝 Heading button clicked, isHeading: $isHeading');
-      
-      // Toggle heading
-      if (isHeading) {
-        // Remove size
-        widget.controller.formatSelection(
-          quill.Attribute.clone(quill.Attribute.size, null),
-        );
-        print('  Removed size attribute');
-        
-        // Remove bold
-        widget.controller.formatSelection(
-          quill.Attribute.clone(quill.Attribute.bold, null),
-        );
-        print('  Removed bold attribute');
-      } else {
-        // Apply size using the correct format
-        widget.controller.formatSelection(
-          quill.Attribute.fromKeyValue('size', '22'),
-        );
-        print('  Applied size=22');
-        
-        // Apply bold
-        widget.controller.formatSelection(quill.Attribute.bold);
-        print('  Applied bold');
-      }
-      
-      // Restore cursor if it was collapsed
-      if (sel.isCollapsed) {
-        widget.controller.updateSelection(sel, quill.ChangeSource.local);
-      }
-    },
-    padding: const EdgeInsets.all(4),
-    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-  );
-}
-
-
-  Widget _toggleFormatButton(IconData icon, String tooltip, quill.Attribute attribute) {
-    final isActive = _isAttributeActive(attribute);
-    
-    return IconButton(
-      icon: Icon(
-        icon,
-        size: 18,
-        color: isActive ? Colors.blue : Colors.white,
-      ),
-      tooltip: tooltip,
+      tooltip,
+      active: active,
       onPressed: () {
-        final selection = widget.controller.selection;
         if (selection.isCollapsed) return;
-        
-        if (isActive) {
-          widget.controller.formatSelection(quill.Attribute.clone(attribute, null));
-        } else {
-          widget.controller.formatSelection(attribute);
-        }
+        widget.controller.formatSelection(
+          active ? quill.Attribute.clone(attr, null) : attr,
+        );
       },
-      padding: const EdgeInsets.all(4),
-      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
     );
   }
 
-  Widget _scriptButton(IconData icon, String tooltip, quill.Attribute attribute) {
-    final selection = widget.controller.selection;
-    bool isActive = false;
-    
-    if (!selection.isCollapsed) {
-      final styles = widget.controller.getSelectionStyle();
-      final script = styles.attributes[quill.Attribute.script.key];
-      isActive = script != null && script.value == attribute.value;
+  Widget _toggleScript(IconData icon, String tooltip, quill.Attribute attr) {
+    final styles = widget.controller.getSelectionStyle();
+    final active =
+        styles.attributes[quill.Attribute.script.key]?.value == attr.value;
+
+    return _icon(
+      icon,
+      tooltip,
+      active: active,
+      onPressed: () {
+        widget.controller.formatSelection(
+          active ? quill.Attribute.clone(quill.Attribute.script, null) : attr,
+        );
+      },
+    );
+  }
+
+  // Complete replacement for the heading and alignment buttons in QuillToolbarWrapper
+
+  Widget _headingButton() {
+    bool selectionIsHeading() {
+      final sel = widget.controller.selection;
+      if (sel.isCollapsed) return false;
+
+      final line = widget.controller.document.queryChild(sel.start).node;
+      if (line is! quill.Line) return false;
+
+      bool hasBold = false;
+      bool hasSize18 = false;
+
+      final delta = line.toDelta().toList();
+      for (final op in delta) {
+        final attrs = op.attributes;
+        if (attrs == null) continue;
+
+        if (attrs['bold'] == true) {
+          hasBold = true;
+        }
+
+        final size = attrs['size'];
+        if (size == 18 || size == '18') {
+          hasSize18 = true;
+        }
+      }
+
+      return hasBold && hasSize18;
     }
-    
-    return IconButton(
-      icon: Icon(
-        icon,
-        size: 18,
-        color: isActive ? Colors.blue : Colors.white,
-      ),
-      tooltip: tooltip,
+
+    final isHeading = selectionIsHeading();
+
+    return _icon(
+      Icons.title,
+      'Heading',
+      active: isHeading,
+      onPressed: () {
+        final sel = widget.controller.selection;
+        if (sel.isCollapsed) return;
+
+        final start = sel.start;
+        final length = sel.end - sel.start;
+
+        if (isHeading) {
+          // REMOVE heading
+          widget.controller.formatText(
+            start,
+            length,
+            quill.Attribute.clone(quill.Attribute.size, null),
+          );
+          widget.controller.formatText(
+            start,
+            length,
+            quill.Attribute.clone(quill.Attribute.bold, null),
+          );
+        } else {
+          // APPLY heading
+          widget.controller.formatText(
+            start,
+            length,
+            quill.Attribute.clone(quill.Attribute.size, 18),
+          );
+          widget.controller.formatText(start, length, quill.Attribute.bold);
+        }
+
+        setState(() {});
+      },
+    );
+  }
+
+  Widget _alignButton(IconData icon, String tooltip, quill.Attribute attr) {
+    final styles = widget.controller.getSelectionStyle();
+    final currentAlign = styles.attributes[quill.Attribute.align.key]?.value;
+    final isActive = currentAlign == attr.value;
+
+    return _icon(
+      icon,
+      tooltip,
+      active: isActive,
       onPressed: () {
         final selection = widget.controller.selection;
         if (selection.isCollapsed) return;
-        
+
         if (isActive) {
           widget.controller.formatSelection(
-            quill.Attribute.clone(quill.Attribute.script, null),
+            quill.Attribute.clone(quill.Attribute.align, null),
           );
         } else {
-          widget.controller.formatSelection(attribute);
+          // APPLY ALIGNMENT
+          widget.controller.formatSelection(attr);
         }
+
+        setState(() {});
       },
-      padding: const EdgeInsets.all(4),
-      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-    );
-  }
-  Widget _alignButton(IconData icon, String tooltip, quill.Attribute attribute) {
-  final selection = widget.controller.selection;
-  bool isActive = false;
-  
-  final line = widget.controller.document.queryChild(selection.baseOffset);
-  if (line.node != null) {
-    final align = line.node!.style.attributes[quill.Attribute.align.key];
-    isActive = align != null && align.value == attribute.value;
-  }
-  
-  return IconButton(
-    icon: Icon(
-      icon,
-      size: 18,
-      color: isActive ? Colors.blue : Colors.white,
-    ),
-    tooltip: tooltip,
-    onPressed: () {
-      final selection = widget.controller.selection;
-      final start = selection.start;
-      final end = selection.end;
-      
-      widget.onPauseTocRebuild?.call();
-      
-      Future.microtask(() {
-        try {
-          // Find all newline positions in the selection range
-          final text = widget.controller.document.toPlainText();
-          final lineBreaks = <int>[start]; // Start of first line
-          
-          // Find all newlines within selection
-          for (int i = start; i < end && i < text.length; i++) {
-            if (text[i] == '\n') {
-              lineBreaks.add(i + 1); // Start of next line
-            }
-          }
-          
-          print('📐 Found ${lineBreaks.length} lines to format');
-          
-          // Format each line individually
-          for (int i = 0; i < lineBreaks.length; i++) {
-            final lineStart = lineBreaks[i];
-            final lineEnd = (i < lineBreaks.length - 1) 
-                ? lineBreaks[i + 1] - 1  // Up to next newline
-                : end;  // Or selection end
-            
-            if (lineEnd <= lineStart) continue;
-            
-            final lineLength = lineEnd - lineStart + 1;
-            
-            print('  Line $i: start=$lineStart, length=$lineLength');
-            
-            try {
-              widget.controller.formatText(
-                lineStart,
-                lineLength,
-                isActive ? quill.Attribute.clone(quill.Attribute.align, null) : attribute,
-              );
-            } catch (e) {
-              print('  ❌ Error: $e');
-            }
-          }
-          
-          widget.controller.updateSelection(selection, quill.ChangeSource.local);
-        } catch (e) {
-          print('❌ Alignment error: $e');
-        } finally {
-          widget.onResumeTocRebuild?.call();
-        }
-      });
-    },
-    padding: const EdgeInsets.all(4),
-    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-  );
-}
-  Widget _customButton(IconData icon, String tooltip, VoidCallback onPressed) {
-    return IconButton(
-      icon: Icon(icon, size: 18, color: Colors.white),
-      tooltip: tooltip,
-      onPressed: onPressed,
-      padding: const EdgeInsets.all(4),
-      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
     );
   }
 
-  Widget _divider() {
-    return const SizedBox(
-      width: 8, 
-      height: 32, 
-      child: VerticalDivider(color: Colors.grey, thickness: 1),
-    );
-  }
+  Widget _divider() => const SizedBox(
+    width: 8,
+    height: 32,
+    child: VerticalDivider(thickness: 1),
+  );
 }

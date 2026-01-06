@@ -7,14 +7,14 @@ import 'package:flutter_quill/flutter_quill.dart' as quill;
 
 class WorkspaceController {
   final TextEditingController titleController = TextEditingController();
-  
+
   late quill.QuillController contentController;
-  
+
   final List<TocEntry> tocEntries = [];
   final List<Article> articles = [];
   final List<String> categories = [];
   final List<Article> openTabs = [];
-  
+
   Article? selectedArticle;
   bool _infoboxDirty = false;
   bool isViewMode = false;
@@ -22,11 +22,11 @@ class WorkspaceController {
 
   String originalContent = "";
   String originalTitle = "";
-  
+
   final ValueNotifier<Article?> hoveredArticle = ValueNotifier(null);
   final ValueNotifier<String?> hoveredCategory = ValueNotifier(null);
   final ValueNotifier<int> tocVersion = ValueNotifier(0);
-  
+
   DateTime? lastSaved;
 
   WorkspaceController() {
@@ -38,12 +38,12 @@ class WorkspaceController {
   }
 
   void resumeTocRebuild() {
-  _pauseTocRebuild = false;
-  // Use Future.microtask to ensure document changes have settled
-  Future.microtask(() {
-    rebuildTocFromContent();
-  });
-}
+    _pauseTocRebuild = false;
+    // Use Future.microtask to ensure document changes have settled
+    Future.microtask(() {
+      rebuildTocFromContent();
+    });
+  }
 
   String generateHeadingId() => _generateHeadingId();
 
@@ -81,36 +81,39 @@ class WorkspaceController {
 
   static List<Map<String, dynamic>> _markdownToDelta(String markdown) {
     final operations = <Map<String, dynamic>>[];
-    
+
     if (markdown.isEmpty) {
       return operations;
     }
 
     final lines = markdown.split('\n');
-    
+
     for (int i = 0; i < lines.length; i++) {
       final line = lines[i];
-      
+
       if (line.startsWith('[align:')) {
         continue;
       }
-      
+
       if (line.startsWith('## ')) {
         final text = _stripHeadingId(line.substring(3).trim());
         operations.add({'insert': text});
-        operations.add({'insert': '\n', 'attributes': {'header': 2}});
+        operations.add({
+          'insert': '\n',
+          'attributes': {'header': 2},
+        });
         continue;
       }
-      
+
       if (line.isNotEmpty) {
         _processInlineFormatting(operations, line);
       }
-      
+
       if (i < lines.length - 1 || line.isNotEmpty) {
         operations.add({'insert': '\n'});
       }
     }
-    
+
     return operations;
   }
 
@@ -118,7 +121,10 @@ class WorkspaceController {
     return text.replaceAll(RegExp(r'\{#.*?\}'), '').trim();
   }
 
-  static void _processInlineFormatting(List<Map<String, dynamic>> operations, String line) {
+  static void _processInlineFormatting(
+    List<Map<String, dynamic>> operations,
+    String line,
+  ) {
     final regex = RegExp(
       r'(\*\*.*?\*\*|__.*?__|~~.*?~~|\^.*?\^|~(?!~).*?~|_.*?_|\[\[.*?\]\]|\[flag:[A-Z0-9]{2,3}\])',
     );
@@ -131,31 +137,52 @@ class WorkspaceController {
       }
 
       final token = match.group(0)!;
-      
+
       if (token.startsWith('**')) {
         final text = token.substring(2, token.length - 2);
-        operations.add({'insert': text, 'attributes': {'bold': true}});
+        operations.add({
+          'insert': text,
+          'attributes': {'bold': true},
+        });
       } else if (token.startsWith('__')) {
         final text = token.substring(2, token.length - 2);
-        operations.add({'insert': text, 'attributes': {'underline': true}});
+        operations.add({
+          'insert': text,
+          'attributes': {'underline': true},
+        });
       } else if (token.startsWith('~~')) {
         final text = token.substring(2, token.length - 2);
-        operations.add({'insert': text, 'attributes': {'strike': true}});
+        operations.add({
+          'insert': text,
+          'attributes': {'strike': true},
+        });
       } else if (token.startsWith('^')) {
         final text = token.substring(1, token.length - 1);
-        operations.add({'insert': text, 'attributes': {'script': 'super'}});
+        operations.add({
+          'insert': text,
+          'attributes': {'script': 'super'},
+        });
       } else if (token.startsWith('~') && !token.startsWith('~~')) {
         final text = token.substring(1, token.length - 1);
-        operations.add({'insert': text, 'attributes': {'script': 'sub'}});
+        operations.add({
+          'insert': text,
+          'attributes': {'script': 'sub'},
+        });
       } else if (token.startsWith('_') && !token.startsWith('__')) {
         final text = token.substring(1, token.length - 1);
-        operations.add({'insert': text, 'attributes': {'italic': true}});
+        operations.add({
+          'insert': text,
+          'attributes': {'italic': true},
+        });
       } else if (token.startsWith('[[')) {
         final content = token.substring(2, token.length - 2);
         final parts = content.split('|');
         final displayText = parts.first;
         final linkTarget = parts.length > 1 ? parts.last : parts.first;
-        operations.add({'insert': displayText, 'attributes': {'link': linkTarget}});
+        operations.add({
+          'insert': displayText,
+          'attributes': {'link': linkTarget},
+        });
       } else if (token.startsWith('[flag:')) {
         operations.add({'insert': token});
       }
@@ -176,7 +203,7 @@ class WorkspaceController {
     if (json.isEmpty) {
       return quill.Document();
     }
-    
+
     try {
       final decoded = jsonDecode(json);
       if (decoded is List) {
@@ -185,7 +212,7 @@ class WorkspaceController {
     } catch (e) {
       // Not JSON - treat as markdown
     }
-    
+
     final operations = _markdownToDelta(json);
     return quill.Document.fromJson(operations);
   }
@@ -252,12 +279,12 @@ class WorkspaceController {
 
   void _loadArticle(Article article) {
     titleController.text = article.title;
-    
+
     final document = _documentFromJson(article.content);
-    
+
     contentController.document = document;
     contentController.readOnly = isViewMode;
-    
+
     contentController.updateSelection(
       const TextSelection.collapsed(offset: 0),
       quill.ChangeSource.local,
@@ -300,7 +327,7 @@ class WorkspaceController {
     if (selectedArticle == null) return false;
 
     final currentJson = _deltaToJson(contentController.document);
-    
+
     return currentJson != originalContent ||
         titleController.text != originalTitle ||
         _infoboxDirty;
@@ -356,115 +383,71 @@ class WorkspaceController {
   }
 
   void rebuildTocFromContent() {
-  final newEntries = <TocEntry>[];
-  
-  final doc = contentController.document;
-  int headingIndex = 0;
-  int charOffset = 0;
+    final newEntries = <TocEntry>[];
 
-  try {
-    print('🔍 TOC Rebuild - Scanning ${doc.root.children.length} nodes');
-    
+    final doc = contentController.document;
+    int charOffset = 0;
+    int headingIndex = 0;
+
     for (final node in doc.root.children) {
-      final text = node.toPlainText().trim();
-      
-      if (text.isEmpty) {
+      if (node is! quill.Line) {
         charOffset += node.length;
         continue;
       }
-      
-      print('  Text: "$text"');
-      print('  Block attrs: ${node.style.attributes}');
-      
-      bool isHeading = false;
-      
-      // Check 1: Has header block attribute (old style)
-      final headerAttr = node.style.attributes['header'];
-      if (headerAttr != null && headerAttr.value == 2) {
-        isHeading = true;
-        print('    ✓ Is heading (header attr)');
-      }
-      
-      // Check 2: Check inline styles by looking at Delta
-      if (!isHeading) {
-        try {
-          // Get the delta for just this line
-          final lineStart = charOffset;
-          final lineEnd = charOffset + node.length - 1; // Exclude newline
-          
-          if (lineEnd > lineStart) {
-            final lineDelta = doc.toDelta().slice(lineStart, lineEnd);
-            
-            // Check first operation for size attribute
-            if (lineDelta.isNotEmpty) {
-              final firstOp = lineDelta.first;
-              final attrs = firstOp.attributes;
-              
-              if (attrs != null) {
-                print('    Inline attrs: $attrs');
-                
-                final size = attrs['size'];
-                final bold = attrs['bold'];
-                
-                if (size != null) {
-                  print('      Size: $size (${size.runtimeType})');
-                  
-                  if (size == 'large' || size == 'huge') {
-                    isHeading = true;
-                    print('      ✓ Is heading (size word)');
-                  } else if (size is String) {
-                    final numSize = double.tryParse(size);
-                    if (numSize != null && numSize >= 22) {
-                      isHeading = true;
-                      print('      ✓ Is heading (size: $numSize)');
-                    }
-                  } else if (size is num && size >= 22) {
-                    isHeading = true;
-                    print('      ✓ Is heading (size: $size)');
-                  }
-                }
-                
-                if (bold == true) {
-                  print('      Bold: true');
-                }
-              }
-            }
+
+      bool hasHeadingSize = false;
+      final buffer = StringBuffer();
+
+      final delta = node.toDelta().toList();
+
+      for (final op in delta) {
+        final attrs = op.attributes;
+
+        // ✅ Heading detection = SIZE ONLY
+        if (attrs != null) {
+          final size = attrs['size'];
+          if (size == 18 ||
+              size == '18' ||
+              size == 'large' ||
+              size == 'huge' ||
+              (size is num && size >= 18)) {
+            hasHeadingSize = true;
           }
-        } catch (e) {
-          print('    Error checking inline attrs: $e');
+        }
+
+        // ✅ Collect visible text
+        if (op.data is String) {
+          final text = op.data as String;
+          if (text != '\n' && text.trim().isNotEmpty) {
+            buffer.write(text);
+          }
         }
       }
-      
-      if (isHeading) {
-  final id = 'h_$headingIndex';
-  
-  // Clean the title: remove newlines and extra whitespace
-  final cleanTitle = text
-      .replaceAll('\n', ' ')  // Replace newlines with spaces
-      .replaceAll(RegExp(r'\s+'), ' ')  // Collapse multiple spaces
-      .trim();
-  
-  newEntries.add(
-    TocEntry(id: id, title: cleanTitle, textOffset: charOffset),
-  );
-  headingIndex++;
-  print('    ✅ ADDED TO TOC: "$cleanTitle"');
-}
-      
+
+      final title = buffer.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+
+      if (title.isNotEmpty && hasHeadingSize) {
+        newEntries.add(
+          TocEntry(
+            id: 'h_$headingIndex',
+            title: title,
+            textOffset: charOffset,
+            level: 1,
+          ),
+        );
+        headingIndex++;
+      }
+
       charOffset += node.length;
     }
-    
-    print('📋 TOC Rebuilt: ${newEntries.length} entries found');
-    
+
     tocEntries
       ..clear()
       ..addAll(newEntries);
-    
+
     tocVersion.value++;
-  } catch (e) {
-    print('❌ TOC rebuild error: $e');
   }
-}
+
   void scrollToHeading(String id, ScrollController scrollController) {
     final entry = tocEntries.firstWhere(
       (e) => e.id == id,
@@ -480,14 +463,14 @@ class WorkspaceController {
       if (!scrollController.hasClients) {
         return;
       }
-      
+
       final doc = contentController.document;
       double estimatedHeight = 0.0;
-      
+
       int currentOffset = 0;
       for (final node in doc.root.children) {
         if (currentOffset >= entry.textOffset) break;
-        
+
         final style = node.style.attributes['header'];
         if (style != null) {
           if (style.value == 1) {
@@ -502,15 +485,15 @@ class WorkspaceController {
           final lines = (textLength / 80).ceil().clamp(1, 10);
           estimatedHeight += lines * (14 * 1.6 + 16);
         }
-        
+
         currentOffset += node.length;
       }
-      
+
       final targetScroll = (estimatedHeight - 100).clamp(
         0.0,
         scrollController.position.maxScrollExtent,
       );
-      
+
       scrollController.animateTo(
         targetScroll,
         duration: const Duration(milliseconds: 400),
@@ -570,8 +553,8 @@ class TocEntry {
   final int level;
 
   TocEntry({
-    required this.id, 
-    required this.title, 
+    required this.id,
+    required this.title,
     required this.textOffset,
     this.level = 2,
   });

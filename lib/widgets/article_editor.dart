@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
-import 'package:arted/widgets/flag_embed.dart';
+import 'package:arted/flags.dart';
 
 class ArticleEditor extends StatefulWidget {
   final quill.QuillController controller;
@@ -9,7 +9,7 @@ class ArticleEditor extends StatefulWidget {
   final FocusNode focusNode;
   final bool isViewMode;
   final Function(String)? onLinkTap;
-  final String? articleId; // ✅ Added for proper rebuilding
+  final String? articleId;
 
   const ArticleEditor({
     super.key,
@@ -18,7 +18,7 @@ class ArticleEditor extends StatefulWidget {
     required this.focusNode,
     required this.isViewMode,
     this.onLinkTap,
-    this.articleId, // ✅ Added
+    this.articleId,
   });
 
   @override
@@ -31,27 +31,51 @@ class _ArticleEditorState extends State<ArticleEditor> {
   @override
   void initState() {
     super.initState();
-    print('📝 ArticleEditor initState - articleId: ${widget.articleId}');
-    print('   onLinkTap is ${widget.onLinkTap != null ? "SET" : "NULL"}');
     _disabledFocusNode = FocusNode(canRequestFocus: false);
   }
 
   @override
-  void didUpdateWidget(ArticleEditor oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    print('🔄 ArticleEditor didUpdateWidget');
-    print('   Old articleId: ${oldWidget.articleId}');
-    print('   New articleId: ${widget.articleId}');
-    print('   onLinkTap is ${widget.onLinkTap != null ? "SET" : "NULL"}');
-  }
-
-  @override
   void dispose() {
+    widget.controller.removeListener(_handleHeadingNewline);
     _disabledFocusNode.dispose();
     super.dispose();
   }
 
-  // ✅ Clean pasted content
+  void _handleHeadingNewline() {
+    final sel = widget.controller.selection;
+    if (!sel.isCollapsed) return;
+
+    final offset = sel.baseOffset;
+    if (offset <= 0) return;
+
+    final text = widget.controller.document.toPlainText();
+
+    if (offset <= text.length && text[offset - 1] == '\n') {
+      final prevLine = widget.controller.document.queryChild(offset - 2);
+
+      if (prevLine.node != null) {
+        final size = prevLine.node!.style.attributes['size']?.value;
+        final isHeading =
+            (size != null && ((size is num && size >= 22) || size == 'large'));
+
+        if (isHeading) {
+          Future.microtask(() {
+            widget.controller.formatText(
+              offset - 1,
+              1,
+              quill.Attribute.clone(quill.Attribute.size, null),
+            );
+            widget.controller.formatText(
+              offset - 1,
+              1,
+              quill.Attribute.clone(quill.Attribute.bold, null),
+            );
+          });
+        }
+      }
+    }
+  }
+
   void _handlePaste() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     if (data == null || data.text == null) return;
@@ -60,7 +84,6 @@ class _ArticleEditorState extends State<ArticleEditor> {
     final selection = widget.controller.selection;
     final index = selection.baseOffset;
 
-    // Delete selected text if any
     if (!selection.isCollapsed) {
       widget.controller.replaceText(
         selection.start,
@@ -70,41 +93,41 @@ class _ArticleEditorState extends State<ArticleEditor> {
       );
     }
 
-    // Insert plain text without any formatting
     widget.controller.document.insert(index, text);
-    
-    // Move cursor to end of pasted text
+
     widget.controller.updateSelection(
       TextSelection.collapsed(offset: index + text.length),
       quill.ChangeSource.local,
     );
-
-    print('📋 Pasted plain text (${text.length} chars) without formatting');
   }
 
   @override
   Widget build(BuildContext context) {
     widget.controller.readOnly = widget.isViewMode;
 
+    if (!widget.isViewMode) {
+      widget.controller.removeListener(_handleHeadingNewline);
+      widget.controller.addListener(_handleHeadingNewline);
+    }
+
     return SingleChildScrollView(
       controller: widget.scrollController,
       child: KeyboardListener(
-        focusNode: FocusNode(), // Separate focus node for keyboard listener
+        focusNode: FocusNode(),
         onKeyEvent: (event) {
-          // ✅ Intercept Ctrl+V / Cmd+V
           if (event is KeyDownEvent) {
-            final isControlPressed = HardwareKeyboard.instance.isControlPressed ||
-                                   HardwareKeyboard.instance.isMetaPressed;
+            final isControlPressed =
+                HardwareKeyboard.instance.isControlPressed ||
+                HardwareKeyboard.instance.isMetaPressed;
             final isVKey = event.logicalKey == LogicalKeyboardKey.keyV;
-            
+
             if (isControlPressed && isVKey && !widget.isViewMode) {
               _handlePaste();
-              // Don't let the default paste happen
             }
           }
         },
         child: quill.QuillEditor.basic(
-          key: ValueKey('quill_${widget.articleId ?? 'none'}'), // ✅ Force rebuild on article change
+          key: ValueKey('quill_${widget.articleId ?? 'none'}'),
           controller: widget.controller,
           focusNode: widget.isViewMode ? _disabledFocusNode : widget.focusNode,
           config: quill.QuillEditorConfig(
@@ -113,30 +136,21 @@ class _ArticleEditorState extends State<ArticleEditor> {
             expands: false,
             placeholder: 'Start writing your article...',
             padding: EdgeInsets.zero,
-            embedBuilders: [
-              FlagEmbedBuilder(),
-            ],
+            embedBuilders: [FlagEmbedBuilder()],
             onLaunchUrl: (url) async {
-              print('📎 onLaunchUrl called with: "$url"');
-              print('   onLinkTap callback is: ${widget.onLinkTap != null ? "SET ✅" : "NULL ❌"}');
-              
               if (widget.onLinkTap != null) {
-                print('   Calling onLinkTap...');
                 widget.onLinkTap!(url);
-                return;
-              } else {
-                print('   ⚠️ onLinkTap is null, cannot handle link!');
               }
             },
             customStyles: quill.DefaultStyles(
               paragraph: quill.DefaultTextBlockStyle(
                 const TextStyle(
                   color: Colors.white,
-                  fontSize: 14,
-                  height: 1.6,
+                  fontSize: 12,
+                  height: 1.25,
                 ),
                 quill.HorizontalSpacing.zero,
-                const quill.VerticalSpacing(8, 8),
+                const quill.VerticalSpacing(4, 4),
                 quill.VerticalSpacing.zero,
                 null,
               ),
@@ -145,10 +159,10 @@ class _ArticleEditorState extends State<ArticleEditor> {
                   color: Colors.white,
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
-                  height: 1.4,
+                  height: 1.15,
                 ),
                 quill.HorizontalSpacing.zero,
-                const quill.VerticalSpacing(16, 8),
+                const quill.VerticalSpacing(8, 4),
                 quill.VerticalSpacing.zero,
                 null,
               ),
@@ -157,10 +171,10 @@ class _ArticleEditorState extends State<ArticleEditor> {
                   color: Colors.white,
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
-                  height: 1.4,
+                  height: 1.15,
                 ),
                 quill.HorizontalSpacing.zero,
-                const quill.VerticalSpacing(12, 6),
+                const quill.VerticalSpacing(6, 3),
                 quill.VerticalSpacing.zero,
                 null,
               ),
@@ -169,10 +183,10 @@ class _ArticleEditorState extends State<ArticleEditor> {
                   color: Colors.white,
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  height: 1.4,
+                  height: 1.15,
                 ),
                 quill.HorizontalSpacing.zero,
-                const quill.VerticalSpacing(10, 4),
+                const quill.VerticalSpacing(4, 2),
                 quill.VerticalSpacing.zero,
                 null,
               ),
