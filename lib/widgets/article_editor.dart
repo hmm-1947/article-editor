@@ -36,44 +36,8 @@ class _ArticleEditorState extends State<ArticleEditor> {
 
   @override
   void dispose() {
-    widget.controller.removeListener(_handleHeadingNewline);
     _disabledFocusNode.dispose();
     super.dispose();
-  }
-
-  void _handleHeadingNewline() {
-    final sel = widget.controller.selection;
-    if (!sel.isCollapsed) return;
-
-    final offset = sel.baseOffset;
-    if (offset <= 0) return;
-
-    final text = widget.controller.document.toPlainText();
-
-    if (offset <= text.length && text[offset - 1] == '\n') {
-      final prevLine = widget.controller.document.queryChild(offset - 2);
-
-      if (prevLine.node != null) {
-        final size = prevLine.node!.style.attributes['size']?.value;
-        final isHeading =
-            (size != null && ((size is num && size >= 22) || size == 'large'));
-
-        if (isHeading) {
-          Future.microtask(() {
-            widget.controller.formatText(
-              offset - 1,
-              1,
-              quill.Attribute.clone(quill.Attribute.size, null),
-            );
-            widget.controller.formatText(
-              offset - 1,
-              1,
-              quill.Attribute.clone(quill.Attribute.bold, null),
-            );
-          });
-        }
-      }
-    }
   }
 
   void _handlePaste() async {
@@ -105,11 +69,6 @@ class _ArticleEditorState extends State<ArticleEditor> {
   Widget build(BuildContext context) {
     widget.controller.readOnly = widget.isViewMode;
 
-    if (!widget.isViewMode) {
-      widget.controller.removeListener(_handleHeadingNewline);
-      widget.controller.addListener(_handleHeadingNewline);
-    }
-
     return SingleChildScrollView(
       controller: widget.scrollController,
       child: KeyboardListener(
@@ -118,7 +77,7 @@ class _ArticleEditorState extends State<ArticleEditor> {
           if (event is KeyDownEvent) {
             final isControlPressed =
                 HardwareKeyboard.instance.isControlPressed ||
-                HardwareKeyboard.instance.isMetaPressed;
+                    HardwareKeyboard.instance.isMetaPressed;
             final isVKey = event.logicalKey == LogicalKeyboardKey.keyV;
 
             if (isControlPressed && isVKey && !widget.isViewMode) {
@@ -143,6 +102,8 @@ class _ArticleEditorState extends State<ArticleEditor> {
               }
             },
             customStyles: quill.DefaultStyles(
+              // ✅ Quill will automatically render size=19 text at 19px
+              // No need for sizeStyles - the size attribute handles it
               paragraph: quill.DefaultTextBlockStyle(
                 const TextStyle(
                   color: Colors.white,

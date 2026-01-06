@@ -20,6 +20,9 @@ class QuillToolbarWrapper extends StatefulWidget {
 }
 
 class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
+  // ✅ UNIQUE SIZE FOR HEADINGS - ONLY HEADINGS HAVE THIS
+  static const int HEADING_SIZE = 19;
+
   @override
   void initState() {
     super.initState();
@@ -127,7 +130,6 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
     );
   }
 
-  // Helper for inline format toggles (bold, italic, etc.)
   Widget _toggleInline(IconData icon, String tooltip, quill.Attribute attr) {
     final selection = widget.controller.selection;
     final active = !selection.isCollapsed && _isInlineActive(attr);
@@ -162,8 +164,6 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
     );
   }
 
-  // Complete replacement for the heading and alignment buttons in QuillToolbarWrapper
-
   Widget _headingButton() {
     bool selectionIsHeading() {
       final sel = widget.controller.selection;
@@ -173,7 +173,7 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
       if (line is! quill.Line) return false;
 
       bool hasBold = false;
-      bool hasSize18 = false;
+      bool hasHeadingSize = false;
 
       final delta = line.toDelta().toList();
       for (final op in delta) {
@@ -185,12 +185,12 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
         }
 
         final size = attrs['size'];
-        if (size == 18 || size == '18') {
-          hasSize18 = true;
+        if (size == HEADING_SIZE) {
+          hasHeadingSize = true;
         }
       }
 
-      return hasBold && hasSize18;
+      return hasBold && hasHeadingSize;
     }
 
     final isHeading = selectionIsHeading();
@@ -219,11 +219,11 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
             quill.Attribute.clone(quill.Attribute.bold, null),
           );
         } else {
-          // APPLY heading
+          // APPLY heading - USE UNIQUE SIZE
           widget.controller.formatText(
             start,
             length,
-            quill.Attribute.clone(quill.Attribute.size, 18),
+            quill.Attribute.clone(quill.Attribute.size, HEADING_SIZE),
           );
           widget.controller.formatText(start, length, quill.Attribute.bold);
         }
@@ -234,9 +234,18 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
   }
 
   Widget _alignButton(IconData icon, String tooltip, quill.Attribute attr) {
-    final styles = widget.controller.getSelectionStyle();
-    final currentAlign = styles.attributes[quill.Attribute.align.key]?.value;
-    final isActive = currentAlign == attr.value;
+    final selection = widget.controller.selection;
+    bool isActive = false;
+    
+    if (!selection.isCollapsed) {
+      final lineResult = widget.controller.document.queryChild(selection.start);
+      final line = lineResult.node;
+      
+      if (line is quill.Line) {
+        final currentAlign = line.style.attributes[quill.Attribute.align.key];
+        isActive = currentAlign?.value == attr.value;
+      }
+    }
 
     return _icon(
       icon,
@@ -246,23 +255,54 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
         final selection = widget.controller.selection;
         if (selection.isCollapsed) return;
 
-        if (isActive) {
-          widget.controller.formatSelection(
-            quill.Attribute.clone(quill.Attribute.align, null),
-          );
-        } else {
-          // APPLY ALIGNMENT
-          widget.controller.formatSelection(attr);
-        }
+        try {
+          final doc = widget.controller.document;
+          
+          // ✅ Get current line
+          final lineResult = doc.queryChild(selection.start);
+          final line = lineResult.node;
+          
+          if (line is! quill.Line) return;
 
-        setState(() {});
+          final lineStart = lineResult.offset;
+          final newlinePos = lineStart + line.length - 1;
+          
+          // ✅ Apply alignment to NEWLINE ONLY (avoids flutter_quill bug)
+          if (newlinePos >= 0 && newlinePos < doc.length) {
+            if (isActive) {
+              // Remove alignment
+              widget.controller.formatText(
+                newlinePos,
+                1,
+                quill.Attribute.clone(quill.Attribute.align, null),
+              );
+            } else {
+              // Apply alignment
+              widget.controller.formatText(
+                newlinePos,
+                1,
+                attr,
+              );
+            }
+          }
+
+          // Keep cursor position
+          widget.controller.updateSelection(
+            selection,
+            quill.ChangeSource.local,
+          );
+
+          setState(() {});
+        } catch (e) {
+          print('❌ Alignment error: $e');
+        }
       },
     );
   }
 
   Widget _divider() => const SizedBox(
-    width: 8,
-    height: 32,
-    child: VerticalDivider(thickness: 1),
-  );
+        width: 8,
+        height: 32,
+        child: VerticalDivider(thickness: 1),
+      );
 }

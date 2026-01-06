@@ -39,7 +39,6 @@ class WorkspaceController {
 
   void resumeTocRebuild() {
     _pauseTocRebuild = false;
-    // Use Future.microtask to ensure document changes have settled
     Future.microtask(() {
       rebuildTocFromContent();
     });
@@ -382,7 +381,9 @@ class WorkspaceController {
     originalTitle = titleController.text;
   }
 
+  // ✅ FIXED: Scan for BOTH header attribute AND size-based headings (backward compatibility)
   void rebuildTocFromContent() {
+    print('🔍 === TOC REBUILD STARTING ===');
     final newEntries = <TocEntry>[];
 
     final doc = contentController.document;
@@ -391,46 +392,63 @@ class WorkspaceController {
 
     for (final node in doc.root.children) {
       if (node is! quill.Line) {
+        print('  Line ${headingIndex + 1}: Not a Line node, skipping');
         charOffset += node.length;
         continue;
       }
 
-      bool hasHeadingSize = false;
-      final buffer = StringBuffer();
+      bool isHeading = false;
+      String headingText = '';
 
-      final delta = node.toDelta().toList();
+      // ✅ METHOD 1: Check for NEW STYLE - block-level header attribute
+      final headerAttr = node.style.attributes['header'];
+      if (headerAttr?.value == 2) {
+        isHeading = true;
+        headingText = node.toPlainText().replaceAll('\n', '').trim();
+        print('  ✅ Found NEW-STYLE header: "$headingText"');
+      }
 
-      for (final op in delta) {
-        final attrs = op.attributes;
+      // ✅ METHOD 2: Check for OLD STYLE - size=19 + bold
+      if (!isHeading) {
+        bool hasSize19 = false;
+        bool hasBold = false;
+        final buffer = StringBuffer();
 
-        // ✅ Heading detection = SIZE ONLY
-        if (attrs != null) {
-          final size = attrs['size'];
-          if (size == 18 ||
-              size == '18' ||
-              size == 'large' ||
-              size == 'huge' ||
-              (size is num && size >= 18)) {
-            hasHeadingSize = true;
+        final delta = node.toDelta().toList();
+        for (final op in delta) {
+          final attrs = op.attributes;
+          
+          if (attrs != null) {
+            final size = attrs['size'];
+            if (size == 19 || size == '19') {
+              hasSize19 = true;
+            }
+            if (attrs['bold'] == true) {
+              hasBold = true;
+            }
+          }
+
+          if (op.data is String) {
+            final text = op.data as String;
+            if (text != '\n' && text.trim().isNotEmpty) {
+              buffer.write(text);
+            }
           }
         }
 
-        // ✅ Collect visible text
-        if (op.data is String) {
-          final text = op.data as String;
-          if (text != '\n' && text.trim().isNotEmpty) {
-            buffer.write(text);
-          }
+        if (hasSize19 && hasBold) {
+          isHeading = true;
+          headingText = buffer.toString().trim();
+          print('  ✅ Found OLD-STYLE header (size=19): "$headingText"');
         }
       }
 
-      final title = buffer.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
-
-      if (title.isNotEmpty && hasHeadingSize) {
+      // Add to TOC if it's a heading
+      if (isHeading && headingText.isNotEmpty) {
         newEntries.add(
           TocEntry(
             id: 'h_$headingIndex',
-            title: title,
+            title: headingText,
             textOffset: charOffset,
             level: 1,
           ),
@@ -446,6 +464,9 @@ class WorkspaceController {
       ..addAll(newEntries);
 
     tocVersion.value++;
+    
+    print('🔄 TOC COMPLETE: ${tocEntries.length} headings found (version ${tocVersion.value})');
+    print('=== TOC REBUILD COMPLETE ===\n');
   }
 
   void scrollToHeading(String id, ScrollController scrollController) {
