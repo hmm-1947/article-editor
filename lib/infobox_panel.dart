@@ -1,8 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui';
 import 'package:arted/flags.dart';
-import 'package:arted/widgets/flag_embed.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:desktop_drop/desktop_drop.dart';
@@ -13,33 +11,24 @@ enum InfoboxBlockType { image, twoColumn, twoColumnSeparated, centeredText }
 class InfoboxBlock {
   final InfoboxBlockType type;
 
-  // Quill controllers for rich text
   quill.QuillController? leftController;
   quill.QuillController? rightController;
   quill.QuillController? textController;
   quill.QuillController? captionController;
-
-  // ADD FOCUS NODES
   FocusNode? leftFocusNode;
   FocusNode? rightFocusNode;
   FocusNode? textFocusNode;
   FocusNode? captionFocusNode;
-
-  // JSON storage
   String? leftJson;
   String? rightJson;
   String? textJson;
   String? captionJson;
-
-  // Image properties
   String? imagePath;
   BoxFit imageFit = BoxFit.cover;
   double? width;
   double? height;
   Rect? cropRect;
-
   InfoboxBlock({required this.type});
-
   Map<String, dynamic> toJson() => {
     'type': type.name,
     'left': leftJson,
@@ -100,7 +89,6 @@ class InfoboxBlock {
     rightController?.dispose();
     textController?.dispose();
     captionController?.dispose();
-    // DISPOSE FOCUS NODES
     leftFocusNode?.dispose();
     rightFocusNode?.dispose();
     textFocusNode?.dispose();
@@ -150,7 +138,7 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         _flagsInitialized = true;
       });
     }
-    print('✅ Flags initialized in InfoboxPanel');
+    print('Flags initialized in InfoboxPanel');
   }
 
   @override
@@ -188,7 +176,7 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
       }
     } catch (e) {
       print(
-        '⚠️ Legacy format detected, converting: "${json.substring(0, json.length.clamp(0, 50))}"',
+        'Legacy format detected, converting: "${json.substring(0, json.length.clamp(0, 50))}"',
       );
       final operations = _markdownToDelta(json);
       return quill.Document.fromJson(operations);
@@ -305,9 +293,8 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         document: doc,
         selection: const TextSelection.collapsed(offset: 0),
       );
-      // INITIALIZE FOCUS NODE
       block.leftFocusNode = FocusNode();
-      
+
       block.leftController!.addListener(() {
         final newJson = _documentToJson(block.leftController!.document);
         if (newJson != block.leftJson) {
@@ -325,7 +312,7 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
       );
       // INITIALIZE FOCUS NODE
       block.rightFocusNode = FocusNode();
-      
+
       block.rightController!.addListener(() {
         final newJson = _documentToJson(block.rightController!.document);
         if (newJson != block.rightJson) {
@@ -343,7 +330,7 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
       );
       // INITIALIZE FOCUS NODE
       block.textFocusNode = FocusNode();
-      
+
       block.textController!.addListener(() {
         final newJson = _documentToJson(block.textController!.document);
         if (newJson != block.textJson) {
@@ -477,7 +464,10 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
     );
   }
 
-  Widget _buildQuillEditor(quill.QuillController controller, FocusNode focusNode) {
+  Widget _buildQuillEditor(
+    quill.QuillController controller,
+    FocusNode focusNode,
+  ) {
     controller.readOnly = widget.isViewMode;
 
     return quill.QuillEditor.basic(
@@ -838,10 +828,7 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
           border: Border.all(color: Colors.grey.shade700),
           borderRadius: BorderRadius.circular(4),
         ),
-        child: _buildQuillEditor(
-          block.textController!,
-          block.textFocusNode!,
-        ),
+        child: _buildQuillEditor(block.textController!, block.textFocusNode!),
       ),
     );
   }
