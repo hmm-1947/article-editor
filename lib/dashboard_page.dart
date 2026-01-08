@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:arted/app_database.dart';
 import 'package:arted/project_workspace_page.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_quill/flutter_quill.dart' as quill;
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -46,6 +49,22 @@ class _DashboardPageState extends State<DashboardPage> {
         .toList();
   }
 
+  int countWordsFromDelta(String? content) {
+    if (content == null || content.trim().isEmpty) return 0;
+    try {
+      final decoded = jsonDecode(content);
+      final doc = quill.Document.fromJson(decoded);
+
+      final text = doc.toPlainText().trim();
+
+      if (text.isEmpty) return 0;
+
+      return text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+    } catch (e) {
+      return 0;
+    }
+  }
+
   Future<void> _loadProjectsFromDb() async {
     final db = await AppDatabase.database;
     final projectRows = await db.query('projects', orderBy: 'created_at DESC');
@@ -55,19 +74,13 @@ class _DashboardPageState extends State<DashboardPage> {
     int wordCount = 0;
     DateTime? latest;
 
-    for (final row in articleRows) {
-      final content = (row['content'] as String?) ?? "";
-      wordCount += content
-          .trim()
-          .split(RegExp(r'\s+'))
-          .where((w) => w.isNotEmpty)
-          .length;
+    for (final row in projectRows) {
+      final updatedAt = row['updated_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int)
+          : DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int);
 
-      final createdAt = DateTime.fromMillisecondsSinceEpoch(
-        row['created_at'] as int,
-      );
-      if (latest == null || createdAt.isAfter(latest)) {
-        latest = createdAt;
+      if (latest == null || updatedAt.isAfter(latest)) {
+        latest = updatedAt;
       }
     }
 
@@ -252,14 +265,17 @@ class _DashboardPageState extends State<DashboardPage> {
             project: project,
             isHovered: hoveredProject == project,
             showMenu: menuOpenProject == project,
-            onOpen: () {
-              Navigator.push(
+            onOpen: () async {
+              await Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (_) => ProjectWorkspacePage(project: project),
                 ),
               );
+
+              _loadProjectsFromDb();
             },
+
             onHover: () => setState(() => hoveredProject = project),
             onExit: () => setState(() {
               hoveredProject = null;
@@ -415,19 +431,25 @@ class _DashboardPageState extends State<DashboardPage> {
             onPressed: () async {
               if (nameController.text.trim().isEmpty) return;
               final db = await AppDatabase.database;
+              final now = DateTime.now();
+
               await db.update(
                 'projects',
                 {
                   'name': nameController.text.trim(),
                   'description': descController.text.trim(),
+                  'updated_at': now.millisecondsSinceEpoch,
                 },
                 where: 'id = ?',
                 whereArgs: [project.id],
               );
+
               setState(() {
                 project.name = nameController.text.trim();
                 project.description = descController.text.trim();
+                project.updatedAt = now;
               });
+
               Navigator.pop(context);
             },
             child: const Text("Save"),
@@ -549,7 +571,7 @@ class Project {
   String name;
   String description;
   final DateTime createdAt;
-  final DateTime updatedAt;
+  DateTime updatedAt;
 
   Project({
     required this.id,

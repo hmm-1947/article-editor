@@ -38,11 +38,11 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
   final ScrollController tabScrollController = ScrollController();
   int? _draggingIndex;
   int? _hoverIndex;
+  late void Function(int) _scrollEditorToOffset;
   bool showSidebar = true;
   bool _hoverSidebarEdge = false;
   bool _hoverTocEdge = false;
   bool _hoverInfoboxEdge = false;
-
   double? _dragPlaceholderWidth;
   int? _committedHoverIndex;
   Map<String, List<Article>> _groupedArticles = {};
@@ -109,10 +109,7 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
     );
     text = text.replaceAllMapped(RegExp(r'\[\[(.*?)\]\]'), (m) => m.group(1)!);
     text = text.replaceAllMapped(RegExp(r'\[(.*?)\]'), (m) => m.group(1)!);
-
     text = text.replaceAll('|', '');
-
-    // ADD THIS LINE - remove newlines
     text = text.replaceAll('\n', ' ');
 
     return text.replaceAll(RegExp(r'\s+'), ' ').trim();
@@ -193,10 +190,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
     print(
       '   Are they the same object? ${controller.selectedArticle == target}',
     );
-
-    // ✅ REMOVED THE EARLY RETURN CHECK - always reload to be safe
-    // The old check was causing issues on first load
-
     final canSwitch = await controller.requestArticleSwitch(target, () async {
       if (controller.hasUnsavedChanges) {
         await controller.saveArticle(widget.project.id, _refreshUI);
@@ -209,7 +202,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
         _cachedTabWidths = null;
       }
 
-      // ✅ Always load the article content
       controller.selectedArticle = target;
       controller.openArticleByTitle(target.title, _refreshUI);
 
@@ -280,7 +272,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
       _cachedTabWidths = null;
     }
 
-    // ✅ Always load the article content
     controller.openArticleByTitle(target.title, _refreshUI);
 
     print('✅ Article switched after save dialog: ${target.title}');
@@ -295,6 +286,11 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
         curve: Curves.easeOut,
       );
     });
+  }
+
+  void _resetEditorScrollToTop() {
+    if (!articleScrollController.hasClients) return;
+    articleScrollController.jumpTo(0.0);
   }
 
   void _confirmDeleteArticle(Article article) {
@@ -494,9 +490,7 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
   }
 
   void _insertFlagIntoQuill() {
-    _showFlagPickerForController(
-      controller.contentController, // ✅ pass QuillController directly
-    );
+    _showFlagPickerForController(controller.contentController);
   }
 
   void _insertLinkIntoQuill(String targetTitle) {
@@ -504,18 +498,15 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
     final index = selection.baseOffset;
     final length = selection.extentOffset - selection.baseOffset;
 
-    // Just store the article title - we'll handle it ourselves
     final linkUrl = targetTitle;
 
     if (length > 0) {
-      // Text is selected - apply link to selection
       controller.contentController.formatText(
         index,
         length,
         quill.LinkAttribute(linkUrl),
       );
     } else {
-      // No selection - insert title as text
       controller.contentController.document.insert(index, targetTitle);
       controller.contentController.formatText(
         index,
@@ -532,12 +523,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
     controller.markInfoboxDirty();
     setState(() {});
   }
-
-  // Complete replacement for _showFlagPickerForController in project_workspace_page.dart
-  // Place this in the _ProjectWorkspacePageState class
-
-  // Complete replacement for _showFlagPickerForController in project_workspace_page.dart
-  // Place this in the _ProjectWorkspacePageState class
 
   void _showFlagPickerForController(quill.QuillController controller) async {
     final allFlags = await FlagsFeature.loadAllFlags();
@@ -628,10 +613,70 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
 
             return AlertDialog(
               backgroundColor: panel,
-              title: const Text(
-                "Insert Flag",
-                style: TextStyle(color: Colors.white),
+              title: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    "Insert Flag",
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  IconButton(
+                    tooltip: "Add new flag",
+                    icon: const Icon(Icons.add, color: Colors.white),
+                    onPressed: () async {
+                      // Ask for country code
+                      final code = await showDialog<String>(
+                        context: context,
+                        builder: (_) {
+                          final ctrl = TextEditingController();
+                          return AlertDialog(
+                            backgroundColor: panel,
+                            title: const Text(
+                              "Add Flag",
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            content: TextField(
+                              controller: ctrl,
+                              autofocus: true,
+                              maxLength: 3,
+                              textCapitalization: TextCapitalization.characters,
+                              style: const TextStyle(color: Colors.white),
+                              decoration: const InputDecoration(
+                                hintText: "Country code (IN, US, FR)",
+                                hintStyle: TextStyle(color: grey),
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text(
+                                  "Cancel",
+                                  style: TextStyle(color: grey),
+                                ),
+                              ),
+                              ElevatedButton(
+                                onPressed: () =>
+                                    Navigator.pop(context, ctrl.text.trim()),
+                                child: const Text("Next"),
+                              ),
+                            ],
+                          );
+                        },
+                      );
+
+                      if (code == null || code.isEmpty) return;
+                      await FlagsFeature.uploadFlag(code);
+                      final refreshed = await FlagsFeature.loadAllFlags();
+                      setLocalState(() {
+                        allFlags
+                          ..clear()
+                          ..addAll(refreshed);
+                      });
+                    },
+                  ),
+                ],
               ),
+
               content: SizedBox(
                 width: 360,
                 height: 420,
@@ -916,24 +961,16 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                                     clipBehavior: Clip.antiAlias,
                                     child: selected == null
                                         ? const SizedBox()
-                                        : // In project_workspace_page.dart, update the InfoboxPanel instantiation
-                                          // This goes in the _buildEditor() method where InfoboxPanel is created
-                                          // Make sure this import exists at the top of the file:
-                                          // Then replace the InfoboxPanel widget with:
-                                          InfoboxPanel(
+                                        : InfoboxPanel(
                                             blocks: selected.infoboxBlocks,
                                             isViewMode: controller.isViewMode,
                                             panelColor: panel,
                                             onChanged:
                                                 controller.markInfoboxDirty,
-
-                                            // ✅ Updated to pass QuillController (type inference handles it)
                                             onOpenFlagPicker:
                                                 _showFlagPickerForController,
 
-                                            // ✅ Handle link clicks in view mode
                                             onOpenLink: (title) {
-                                              // Strip URL prefix that flutter_quill adds
                                               String cleanTitle = title;
                                               if (title.startsWith(
                                                 'https://',
@@ -946,7 +983,7 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                                               }
 
                                               print(
-                                                '🔍 Looking for article: "$cleanTitle" (original: "$title")',
+                                                'Looking for article: "$cleanTitle" (original: "$title")',
                                               );
 
                                               final target = controller.articles
@@ -961,12 +998,12 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
 
                                               if (target != null) {
                                                 print(
-                                                  '✅ Found article: ${target.title}',
+                                                  ' Found article: ${target.title}',
                                                 );
                                                 _switchArticleSafely(target);
                                               } else {
                                                 print(
-                                                  '❌ Article not found among ${controller.articles.length} articles',
+                                                  ' Article not found among ${controller.articles.length} articles',
                                                 );
                                                 print(
                                                   '   Available: ${controller.articles.map((a) => a.title).join(", ")}',
@@ -974,7 +1011,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                                               }
                                             },
 
-                                            // ✅ Article picker for link insertion
                                             onPickArticle: () async {
                                               final article =
                                                   await _showArticleLinkPicker();
@@ -1044,7 +1080,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
               ],
             ),
           ),
-          _buildFooter(),
         ],
       ),
     );
@@ -1737,7 +1772,7 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                     );
                     setState(() {
                       a.category = v;
-                      _rebuildGroupedArticles(); // ADD THIS LINE
+                      _rebuildGroupedArticles();
                     });
                   },
                 ),
@@ -1761,22 +1796,24 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
 
               Expanded(
                 child: ArticleEditor(
+                  key: ValueKey(controller.selectedArticle!.id),
                   controller: controller.contentController,
                   scrollController: articleScrollController,
                   focusNode: _editorFocusNode,
                   isViewMode: controller.isViewMode,
+                  onArticleLoadedScrollTop: () {
+                    if (!articleScrollController.hasClients) return;
+                    articleScrollController.jumpTo(0.0);
+                  },
+                  onRegisterScroll: (fn) {
+                    _scrollEditorToOffset = fn;
+                  },
                   onLinkTap: (url) {
-                    print('Link tapped: $url');
-
-                    // Strip any URL crap Quill adds
                     String title = url
                         .replaceAll(RegExp(r'^https?://'), '')
                         .replaceAll('%20', ' ')
                         .trim();
 
-                    print('Looking for article: $title');
-
-                    // Just open the damn article
                     final target = controller.articles
                         .where(
                           (a) => a.title.toLowerCase() == title.toLowerCase(),
@@ -1785,21 +1822,7 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                         .firstOrNull;
 
                     if (target != null) {
-                      print('Found article: ${target.title}');
                       _switchArticleSafely(target);
-                    } else {
-                      print('Article not found: $title');
-                      // Show available articles for debugging
-                      print(
-                        'Available articles: ${controller.articles.map((a) => a.title).join(", ")}',
-                      );
-
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Article "$title" not found'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
                     }
                   },
                 ),
@@ -1873,7 +1896,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
               ),
               const SizedBox(height: 12),
 
-              // ✅ Use ValueListenableBuilder to watch for updates
               Expanded(
                 child: ValueListenableBuilder<int>(
                   valueListenable: controller.tocVersion,
@@ -1882,7 +1904,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                       'TOC Panel rebuilding, version: $version, entries: ${controller.tocEntries.length}',
                     );
 
-                    // Show message if no headings
                     if (controller.tocEntries.isEmpty) {
                       return const Center(
                         child: Text(
@@ -1893,17 +1914,12 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                       );
                     }
 
-                    // Show the list of headings
                     return ListView.builder(
-                      key: ValueKey('toc_$version'), // ✅ Force rebuild with key
+                      key: ValueKey('toc_$version'),
                       itemCount: controller.tocEntries.length,
                       itemBuilder: (context, index) {
                         final entry = controller.tocEntries[index];
-
-                        // Clean the title for display
                         final cleanTitle = _cleanTocTitle(entry.title);
-
-                        // Add indentation for different heading levels
                         final indent = (entry.level - 1) * 12.0;
 
                         return InkWell(
@@ -1970,11 +1986,15 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
 
   void _scrollToHeading(String id) {
     if (controller.selectedArticle == null) return;
-    if (!articleScrollController.hasClients) {
-      print('Warning: Scroll controller not ready');
-      return;
+
+    final entry = controller.tocEntries.firstWhere(
+      (e) => e.id == id,
+      orElse: () => controller.tocEntries.first,
+    );
+
+    if (_scrollEditorToOffset != null) {
+      _scrollEditorToOffset(entry.textOffset);
     }
-    controller.scrollToHeading(id, articleScrollController);
   }
 
   Widget _edgeHandle({
@@ -2002,21 +2022,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
             child: Icon(icon, size: 18, color: Colors.grey),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildFooter() {
-    return Container(
-      height: 36,
-      color: panel,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: const Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text("T 744 words", style: TextStyle(color: grey)),
-          Text("Last saved: 12:39 PM", style: TextStyle(color: grey)),
-        ],
       ),
     );
   }

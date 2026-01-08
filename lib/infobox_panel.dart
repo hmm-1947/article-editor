@@ -310,7 +310,6 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         document: doc,
         selection: const TextSelection.collapsed(offset: 0),
       );
-      // INITIALIZE FOCUS NODE
       block.rightFocusNode = FocusNode();
 
       block.rightController!.addListener(() {
@@ -328,8 +327,12 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         document: doc,
         selection: const TextSelection.collapsed(offset: 0),
       );
-      // INITIALIZE FOCUS NODE
+
       block.textFocusNode = FocusNode();
+
+      if (block.type == InfoboxBlockType.centeredText) {
+        block.textController!.formatSelection(quill.Attribute.centerAlignment);
+      }
 
       block.textController!.addListener(() {
         final newJson = _documentToJson(block.textController!.document);
@@ -346,7 +349,6 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         document: doc,
         selection: const TextSelection.collapsed(offset: 0),
       );
-      // INITIALIZE FOCUS NODE
       block.captionFocusNode = FocusNode();
 
       block.captionController!.addListener(() {
@@ -441,8 +443,11 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
 
     return Stack(
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+        Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey.shade700, width: 1),
+          ),
           child: content,
         ),
         if (!widget.isViewMode)
@@ -466,13 +471,14 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
 
   Widget _buildQuillEditor(
     quill.QuillController controller,
-    FocusNode focusNode,
-  ) {
+    FocusNode focusNode, {
+    bool centered = false,
+  }) {
     controller.readOnly = widget.isViewMode;
 
     return quill.QuillEditor.basic(
       controller: controller,
-      focusNode: focusNode, // ADD FOCUS NODE
+      focusNode: focusNode,
       config: quill.QuillEditorConfig(
         scrollable: false,
         autoFocus: false,
@@ -577,7 +583,6 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
                 )
               : GestureDetector(
                   onTap: () {
-                    // REQUEST FOCUS ON TAP
                     block.captionFocusNode?.requestFocus();
                     setState(() {
                       _activeController = block.captionController;
@@ -755,7 +760,6 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         Expanded(
           child: GestureDetector(
             onTap: () {
-              // REQUEST FOCUS ON TAP
               block.leftFocusNode?.requestFocus();
               setState(() {
                 _activeController = block.leftController;
@@ -783,7 +787,6 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         Expanded(
           child: GestureDetector(
             onTap: () {
-              // REQUEST FOCUS ON TAP
               block.rightFocusNode?.requestFocus();
               setState(() {
                 _activeController = block.rightController;
@@ -817,7 +820,6 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
 
     return GestureDetector(
       onTap: () {
-        // REQUEST FOCUS ON TAP
         block.textFocusNode?.requestFocus();
         setState(() {
           _activeController = block.textController;
@@ -828,7 +830,11 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
           border: Border.all(color: Colors.grey.shade700),
           borderRadius: BorderRadius.circular(4),
         ),
-        child: _buildQuillEditor(block.textController!, block.textFocusNode!),
+        child: _buildQuillEditor(
+          block.textController!,
+          block.textFocusNode!,
+          centered: true,
+        ),
       ),
     );
   }

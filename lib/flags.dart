@@ -13,7 +13,11 @@ class FlagItem {
 }
 
 class FlagsFeature {
-  static const double flagHeight = 22.1;
+  static const double flagWidth = 20.0;
+  static const double flagHeight = 15.0;
+
+  static const int imageWidth = 64; // 2× for sharpness
+  static const int imageHeight = 44; // 2× for sharpness
   static final Map<String, FlagItem> _flags = {};
 
   static Future<Directory> _flagsDir() async {
@@ -87,7 +91,7 @@ class FlagsFeature {
 
     final resized = img.copyResize(
       decoded,
-      height: flagHeight.toInt(),
+      height: FlagsFeature.flagHeight.toInt() * 2,
       interpolation: img.Interpolation.average,
     );
 
@@ -113,8 +117,13 @@ class FlagEmbedBuilder extends quill.EmbedBuilder {
 
     if (flagFile != null) {
       return SizedBox(
+        width: FlagsFeature.flagWidth,
         height: FlagsFeature.flagHeight,
-        child: Image.file(flagFile, fit: BoxFit.contain),
+        child: Image.file(
+          flagFile,
+          fit: BoxFit.contain,
+          alignment: Alignment.center,
+        ),
       );
     }
 

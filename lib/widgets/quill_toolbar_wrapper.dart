@@ -233,63 +233,62 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
     );
   }
 
-Widget _alignButton(IconData icon, String tooltip, quill.Attribute attr) {
-  final selection = widget.controller.selection;
-  bool isActive = false;
-  
-  if (!selection.isCollapsed) {
-    final lineResult = widget.controller.document.queryChild(selection.start);
-    final line = lineResult.node;
-    
-    // ✅ Use null-safe access
-    final currentAlign = line?.style.attributes[quill.Attribute.align.key];
-    isActive = currentAlign?.value == attr.value;
+  Widget _alignButton(IconData icon, String tooltip, quill.Attribute attr) {
+    final selection = widget.controller.selection;
+    bool isActive = false;
+
+    if (!selection.isCollapsed) {
+      final lineResult = widget.controller.document.queryChild(selection.start);
+      final line = lineResult.node;
+
+      // ✅ Use null-safe access
+      final currentAlign = line?.style.attributes[quill.Attribute.align.key];
+      isActive = currentAlign?.value == attr.value;
+    }
+
+    return _icon(
+      icon,
+      tooltip,
+      active: isActive,
+      onPressed: () {
+        final selection = widget.controller.selection;
+        if (selection.isCollapsed) return;
+
+        // ✅ Apply alignment and force clean rebuild
+        final oldSelection = selection;
+
+        if (isActive) {
+          // Remove alignment
+          widget.controller.formatText(
+            selection.start,
+            selection.end - selection.start,
+            quill.Attribute.clone(quill.Attribute.align, null),
+          );
+        } else {
+          // Apply alignment
+          widget.controller.formatText(
+            selection.start,
+            selection.end - selection.start,
+            attr,
+          );
+        }
+
+        // ✅ Force document refresh to avoid flutter_quill rendering bug
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          widget.controller.updateSelection(
+            oldSelection,
+            quill.ChangeSource.local,
+          );
+        });
+
+        setState(() {});
+      },
+    );
   }
 
-  return _icon(
-    icon,
-    tooltip,
-    active: isActive,
-    onPressed: () {
-      final selection = widget.controller.selection;
-      if (selection.isCollapsed) return;
-
-      // ✅ Apply alignment and force clean rebuild
-      final oldSelection = selection;
-      
-      if (isActive) {
-        // Remove alignment
-        widget.controller.formatText(
-          selection.start,
-          selection.end - selection.start,
-          quill.Attribute.clone(quill.Attribute.align, null),
-        );
-      } else {
-        // Apply alignment
-        widget.controller.formatText(
-          selection.start,
-          selection.end - selection.start,
-          attr,
-        );
-      }
-
-      // ✅ Force document refresh to avoid flutter_quill rendering bug
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        widget.controller.updateSelection(
-          oldSelection,
-          quill.ChangeSource.local,
-        );
-      });
-
-      setState(() {});
-    },
-  );
-}
-  
-
   Widget _divider() => const SizedBox(
-        width: 8,
-        height: 32,
-        child: VerticalDivider(thickness: 1),
-      );
+    width: 8,
+    height: 32,
+    child: VerticalDivider(thickness: 1),
+  );
 }
