@@ -1,4 +1,4 @@
-import 'package:arted/models/articles.dart';
+import 'package:interlogue/models/articles.dart';
 import 'package:flutter/material.dart';
 
 class ArticleTab extends StatelessWidget {

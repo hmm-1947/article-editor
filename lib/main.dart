@@ -1,6 +1,5 @@
-import 'package:arted/dashboard_page.dart';
-import 'package:arted/flags.dart';
-import 'package:arted/widgets/trial_watermark.dart';
+import 'package:interlogue/dashboard_page.dart';
+import 'package:interlogue/flags.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -28,11 +27,6 @@ class MyApp extends StatelessWidget {
       ],
       supportedLocales: const [Locale('en', 'US')],
       home: const DashboardPage(),
-      builder: (context, child) {
-        return Stack(
-          children: [if (child != null) child, const TrialWatermark()],
-        );
-      },
     );
   }
 }

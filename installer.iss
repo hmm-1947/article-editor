@@ -1,11 +1,11 @@
 [Setup]
-AppName=Encyclopedia Editor
+AppName=Interlogue
 AppVersion=1.0.0
-AppPublisher=Your Name
-DefaultDirName={pf}\EncyclopediaEditor
-DefaultGroupName=Encyclopedia Editor
+AppPublisher=Joshua
+DefaultDirName={pf}\Interlogue
+DefaultGroupName=Interlogue
 OutputDir=installer
-OutputBaseFilename=EncyclopediaEditor_Setup
+OutputBaseFilename=Interlogue_setup
 Compression=lzma
 SolidCompression=yes
 DisableProgramGroupPage=yes
@@ -14,8 +14,8 @@ DisableProgramGroupPage=yes
 Source: "build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Encyclopedia Editor"; Filename: "{app}\arted.exe"
-Name: "{commondesktop}\Encyclopedia Editor"; Filename: "{app}\arted.exe"
+Name: "{group}\Interlogue"; Filename: "{app}\Interlogue.exe"
+Name: "{commondesktop}\Interlogue"; Filename: "{app}\Interlogue.exe"
 
 [Run]
-Filename: "{app}\arted.exe"; Description: "Launch Encyclopedia Editor"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Interlogue.exe"; Description: "Launch Interlogue"; Flags: nowait postinstall skipifsilent

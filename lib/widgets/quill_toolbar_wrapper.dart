@@ -20,7 +20,6 @@ class QuillToolbarWrapper extends StatefulWidget {
 }
 
 class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
-  // ✅ UNIQUE SIZE FOR HEADINGS - ONLY HEADINGS HAVE THIS
   static const int HEADING_SIZE = 19;
 
   @override
@@ -207,7 +206,6 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
         final length = sel.end - sel.start;
 
         if (isHeading) {
-          // REMOVE heading
           widget.controller.formatText(
             start,
             length,
@@ -219,7 +217,6 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
             quill.Attribute.clone(quill.Attribute.bold, null),
           );
         } else {
-          // APPLY heading - USE UNIQUE SIZE
           widget.controller.formatText(
             start,
             length,
@@ -241,7 +238,6 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
       final lineResult = widget.controller.document.queryChild(selection.start);
       final line = lineResult.node;
 
-      // ✅ Use null-safe access
       final currentAlign = line?.style.attributes[quill.Attribute.align.key];
       isActive = currentAlign?.value == attr.value;
     }
@@ -254,18 +250,15 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
         final selection = widget.controller.selection;
         if (selection.isCollapsed) return;
 
-        // ✅ Apply alignment and force clean rebuild
         final oldSelection = selection;
 
         if (isActive) {
-          // Remove alignment
           widget.controller.formatText(
             selection.start,
             selection.end - selection.start,
             quill.Attribute.clone(quill.Attribute.align, null),
           );
         } else {
-          // Apply alignment
           widget.controller.formatText(
             selection.start,
             selection.end - selection.start,
@@ -273,7 +266,6 @@ class _QuillToolbarWrapperState extends State<QuillToolbarWrapper> {
           );
         }
 
-        // ✅ Force document refresh to avoid flutter_quill rendering bug
         WidgetsBinding.instance.addPostFrameCallback((_) {
           widget.controller.updateSelection(
             oldSelection,

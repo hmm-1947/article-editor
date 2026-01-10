@@ -1,4 +1,4 @@
-import 'package:arted/infobox_panel.dart';
+import 'package:interlogue/infobox_panel.dart';
 
 class Article {
   final String id;

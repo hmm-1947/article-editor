@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
-import 'package:arted/flags.dart';
+import 'package:interlogue/flags.dart';
 import 'package:flutter/rendering.dart';
 
 class ArticleEditor extends StatefulWidget {
@@ -107,11 +107,8 @@ class _ArticleEditorState extends State<ArticleEditor> {
       quill.ChangeSource.local,
     );
 
-    // Scroll to the match
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !widget.scrollController.hasClients) return;
-
-      // Estimate scroll position based on document structure
       final doc = widget.controller.document;
       double estimatedHeight = 0.0;
       int currentOffset = 0;
@@ -121,9 +118,7 @@ class _ArticleEditorState extends State<ArticleEditor> {
 
         final nodeLength = node.length;
 
-        // Check if our target offset is within this node
         if (currentOffset + nodeLength > offset) {
-          // Target is in this node, calculate partial height
           final headerAttr = node.style.attributes['header'];
           if (headerAttr != null) {
             final level = headerAttr.value as int;
@@ -135,7 +130,6 @@ class _ArticleEditorState extends State<ArticleEditor> {
               estimatedHeight += 18 * 1.4 + 14;
             }
           } else {
-            // Calculate how far into this node we are
             final offsetInNode = offset - currentOffset;
             final textLength = node.toPlainText().length;
             final charsPerLine = 80;
@@ -149,7 +143,6 @@ class _ArticleEditorState extends State<ArticleEditor> {
           break;
         }
 
-        // Add full height of this node
         final headerAttr = node.style.attributes['header'];
         if (headerAttr != null) {
           final level = headerAttr.value as int;
@@ -169,7 +162,6 @@ class _ArticleEditorState extends State<ArticleEditor> {
         currentOffset += nodeLength;
       }
 
-      // Center the match in the viewport
       final viewportHeight = widget.scrollController.position.viewportDimension;
       final targetScroll = (estimatedHeight - viewportHeight / 2).clamp(
         0.0,
@@ -229,60 +221,6 @@ class _ArticleEditorState extends State<ArticleEditor> {
     super.dispose();
   }
 
-  void _scrollSelectionIntoView() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (!widget.scrollController.hasClients) return;
-
-      final editorContext = _editorKey.currentContext;
-      if (editorContext == null) return;
-
-      RenderObject? renderObject = editorContext.findRenderObject();
-      RenderEditable? renderEditable;
-
-      void search(RenderObject? obj) {
-        if (obj == null) return;
-        if (obj is RenderEditable) {
-          renderEditable = obj;
-          return;
-        }
-        obj.visitChildren(search);
-      }
-
-      search(renderObject);
-
-      if (renderEditable != null) {
-        try {
-          final caretRect = renderEditable!.getLocalRectForCaret(
-            widget.controller.selection.extent,
-          );
-
-          final editorBox = editorContext.findRenderObject() as RenderBox;
-          final editorOffset = editorBox.localToGlobal(Offset.zero);
-          final absoluteCaretTop = editorOffset.dy + caretRect.top;
-
-          final scrollPosition = widget.scrollController.position;
-          final viewportHeight = scrollPosition.viewportDimension;
-          final currentScroll = widget.scrollController.offset;
-
-          final targetScroll =
-              (currentScroll + absoluteCaretTop - viewportHeight * 0.35).clamp(
-                0.0,
-                scrollPosition.maxScrollExtent,
-              );
-
-          widget.scrollController.animateTo(
-            targetScroll,
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeOut,
-          );
-        } catch (e) {
-          print('Error scrolling to selection: $e');
-        }
-      }
-    });
-  }
-
   void _onControllerChange() {
     if (_suppressAutoScroll) {
       _lastDocLength = widget.controller.document.length;
@@ -310,22 +248,6 @@ class _ArticleEditorState extends State<ArticleEditor> {
     }
 
     _lastDocLength = currentLength;
-  }
-
-  void _checkAndClearHeadingFormatting() {
-    final selection = widget.controller.selection;
-    if (!selection.isCollapsed || selection.baseOffset <= 0) return;
-    final style = widget.controller.getSelectionStyle();
-    final size = style.attributes['size']?.value;
-
-    if (size == 19 || size == '19') {
-      widget.controller.formatSelection(
-        quill.Attribute.clone(quill.Attribute.size, null),
-      );
-      widget.controller.formatSelection(
-        quill.Attribute.clone(quill.Attribute.bold, null),
-      );
-    }
   }
 
   bool _isNearBottom() {
@@ -383,12 +305,9 @@ class _ArticleEditorState extends State<ArticleEditor> {
             curve: Curves.easeOut,
           );
           return;
-        } catch (e) {
-          print('Error getting caret rect: $e');
-        }
+          // ignore: empty_catches
+        } catch (e) {}
       }
-
-      print('Using fallback scroll estimation');
       final doc = widget.controller.document;
       double estimatedHeight = 0.0;
       int currentOffset = 0;
@@ -459,26 +378,21 @@ class _ArticleEditorState extends State<ArticleEditor> {
         SingleChildScrollView(
           controller: widget.scrollController,
           child: Focus(
-            autofocus: true, // 🔥 CRITICAL
+            autofocus: true,
             onKeyEvent: (node, event) {
               if (event is KeyDownEvent) {
                 final isCtrl =
                     HardwareKeyboard.instance.isControlPressed ||
                     HardwareKeyboard.instance.isMetaPressed;
 
-                // 🔥 BLOCK Ctrl+F BEFORE QUILL
                 if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyF) {
-                  _toggleSearchBar(); // your custom search
-                  return KeyEventResult.handled; // ⛔ STOP HERE
+                  _toggleSearchBar();
+                  return KeyEventResult.handled;
                 }
-
-                // Ctrl+G (optional)
                 if (isCtrl && event.logicalKey == LogicalKeyboardKey.keyE) {
                   _toggleSearchBar();
                   return KeyEventResult.handled;
                 }
-
-                // Ctrl+V custom paste
                 if (isCtrl &&
                     event.logicalKey == LogicalKeyboardKey.keyV &&
                     !widget.isViewMode) {
@@ -599,7 +513,7 @@ class _ArticleEditorState extends State<ArticleEditor> {
               child: Container(
                 decoration: BoxDecoration(
                   color: const Color(0xFF2D2D2D),
-                  borderRadius: BorderRadius.circular(12), // 🔥 rounded corners
+                  borderRadius: BorderRadius.circular(12),
                   boxShadow: const [
                     BoxShadow(
                       color: Colors.black54,
@@ -625,9 +539,7 @@ class _ArticleEditorState extends State<ArticleEditor> {
                           filled: true,
                           fillColor: const Color(0xFF1E1E1E),
                           border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              8,
-                            ), // 🔥 inner rounding
+                            borderRadius: BorderRadius.circular(8),
                             borderSide: BorderSide.none,
                           ),
                           contentPadding: const EdgeInsets.symmetric(

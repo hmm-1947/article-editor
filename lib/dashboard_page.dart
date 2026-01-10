@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:arted/app_database.dart';
-import 'package:arted/project_workspace_page.dart';
+import 'package:interlogue/app_database.dart';
+import 'package:interlogue/project_workspace_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 
@@ -65,6 +65,15 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
+  String formatWordCount(int count) {
+    if (count >= 1_000_000) {
+      return "${(count / 1_000_000).toStringAsFixed(1).replaceAll('.0', '')}M";
+    } else if (count >= 1_000) {
+      return "${(count / 1_000).toStringAsFixed(1).replaceAll('.0', '')}k";
+    }
+    return count.toString();
+  }
+
   Future<void> _loadProjectsFromDb() async {
     final db = await AppDatabase.database;
     final projectRows = await db.query('projects', orderBy: 'created_at DESC');
@@ -73,6 +82,11 @@ class _DashboardPageState extends State<DashboardPage> {
     int articleCount = articleRows.length;
     int wordCount = 0;
     DateTime? latest;
+
+    for (final article in articleRows) {
+      final content = article['content'] as String?;
+      wordCount += countWordsFromDelta(content);
+    }
 
     for (final row in projectRows) {
       final updatedAt = row['updated_at'] != null
@@ -112,8 +126,6 @@ class _DashboardPageState extends State<DashboardPage> {
       lastUpdated = latest;
     });
   }
-
-  // ───────────────── UI ─────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -245,7 +257,8 @@ class _DashboardPageState extends State<DashboardPage> {
       children: [
         _statCard("Projects", projects.length.toString(), Icons.folder),
         _statCard("Articles", totalArticles.toString(), Icons.description),
-        _statCard("Words", totalWords.toString(), Icons.trending_up),
+        _statCard("Words", formatWordCount(totalWords), Icons.trending_up),
+
         _statCard(
           "Last Updated",
           lastUpdated == null ? "-" : _formatDate(lastUpdated!),
@@ -334,8 +347,6 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
     );
   }
-
-  // ───────────────── DIALOGS & HELPERS ─────────────────
 
   void _confirmDeleteProject(Project project) {
     showDialog(
@@ -537,8 +548,6 @@ class _DashboardPageState extends State<DashboardPage> {
 
   String _formatDate(DateTime d) => "${d.day}/${d.month}/${d.year}";
 }
-
-// ───────────────── SMALL WIDGETS ─────────────────
 
 class _SidebarItem extends StatelessWidget {
   final IconData icon;

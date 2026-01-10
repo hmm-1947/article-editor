@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:arted/flags.dart';
+import 'package:interlogue/flags.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:desktop_drop/desktop_drop.dart';
@@ -138,7 +138,6 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         _flagsInitialized = true;
       });
     }
-    print('Flags initialized in InfoboxPanel');
   }
 
   @override
@@ -175,9 +174,6 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         return quill.Document.fromJson(decoded);
       }
     } catch (e) {
-      print(
-        'Legacy format detected, converting: "${json.substring(0, json.length.clamp(0, 50))}"',
-      );
       final operations = _markdownToDelta(json);
       return quill.Document.fromJson(operations);
     }
@@ -370,9 +366,6 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
         if (mounted && _activeController != controller) {
           setState(() {
             _activeController = controller;
-            print(
-              '🎯 Active controller changed to: ${_getControllerName(controller, block)}',
-            );
           });
         }
       });
@@ -382,17 +375,6 @@ class _InfoboxPanelState extends State<InfoboxPanel> {
     _trackController(block.rightController!);
     _trackController(block.textController!);
     _trackController(block.captionController!);
-  }
-
-  String _getControllerName(
-    quill.QuillController controller,
-    InfoboxBlock block,
-  ) {
-    if (controller == block.leftController) return 'left';
-    if (controller == block.rightController) return 'right';
-    if (controller == block.textController) return 'text';
-    if (controller == block.captionController) return 'caption';
-    return 'unknown';
   }
 
   Widget _renderFlag(String flagCode) {

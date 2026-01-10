@@ -9,16 +9,17 @@ class FlagItem {
   final String tag;
   final String path;
 
-  FlagItem({required this.tag, required this.path});
+  const FlagItem({required this.tag, required this.path});
 }
 
 class FlagsFeature {
   static const double flagWidth = 20.0;
   static const double flagHeight = 15.0;
 
-  static const int imageWidth = 64; // 2× for sharpness
-  static const int imageHeight = 44; // 2× for sharpness
-  static final Map<String, FlagItem> _flags = {};
+  static const int imageWidth = 64;
+  static const int imageHeight = 44;
+
+  static final Map<String, FlagItem> _flags = <String, FlagItem>{};
 
   static Future<Directory> _flagsDir() async {
     final base = await getApplicationSupportDirectory();
@@ -29,29 +30,31 @@ class FlagsFeature {
     return dir;
   }
 
+  static String _norm(String code) => code.trim().toUpperCase();
+
   static Future<Map<String, File>> loadAllFlags() async {
     final dir = await _flagsDir();
     final Map<String, File> flags = {};
 
     if (!await dir.exists()) return flags;
 
-    for (final f in dir.listSync()) {
-      if (f is File && f.path.endsWith('.png')) {
-        final code = f.uri.pathSegments.last
+    await for (final entity in dir.list()) {
+      if (entity is File && entity.path.endsWith('.png')) {
+        final code = entity.uri.pathSegments.last
             .replaceAll('.png', '')
             .toUpperCase();
-        flags[code] = f;
+        flags[code] = entity;
       }
     }
     return flags;
   }
 
   static void registerFlag(String tag, String path) {
-    _flags[tag.toUpperCase()] = FlagItem(tag: tag, path: path);
+    _flags[_norm(tag)] = FlagItem(tag: _norm(tag), path: path);
   }
 
   static File? getFlagFile(String code) {
-    final flag = _flags[code.toUpperCase()];
+    final flag = _flags[_norm(code)];
     if (flag == null) return null;
 
     final file = File(flag.path);
@@ -60,13 +63,13 @@ class FlagsFeature {
 
   static Future<void> deleteFlag(String code) async {
     final dir = await _flagsDir();
-    final file = File('${dir.path}/${code.toLowerCase()}.png');
+    final normalized = code.toLowerCase();
+    final file = File('${dir.path}/$normalized.png');
 
     if (await file.exists()) {
       await file.delete();
     }
-
-    _flags.remove(code.toUpperCase());
+    _flags.remove(_norm(code));
   }
 
   static Future<void> uploadFlag(String countryCode) async {
@@ -74,14 +77,14 @@ class FlagsFeature {
       type: FileType.image,
       allowMultiple: false,
     );
-    if (result == null) return;
+    if (result == null || result.files.single.path == null) return;
 
     final source = File(result.files.single.path!);
     final flagsDir = await _flagsDir();
     final output = File('${flagsDir.path}/${countryCode.toLowerCase()}.png');
 
     await _resizeAndSave(source, output);
-    registerFlag(countryCode.toUpperCase(), output.path);
+    registerFlag(countryCode, output.path);
   }
 
   static Future<void> _resizeAndSave(File input, File output) async {
@@ -91,7 +94,8 @@ class FlagsFeature {
 
     final resized = img.copyResize(
       decoded,
-      height: FlagsFeature.flagHeight.toInt() * 2,
+      width: imageWidth,
+      height: imageHeight,
       interpolation: img.Interpolation.average,
     );
 
@@ -112,8 +116,12 @@ class FlagEmbedBuilder extends quill.EmbedBuilder {
 
   @override
   Widget build(BuildContext context, quill.EmbedContext embedContext) {
-    final flagCode = embedContext.node.value.data as String;
-    final flagFile = FlagsFeature.getFlagFile(flagCode);
+    final data = embedContext.node.value.data;
+    if (data is! String) {
+      return const SizedBox.shrink();
+    }
+
+    final flagFile = FlagsFeature.getFlagFile(data);
 
     if (flagFile != null) {
       return SizedBox(
@@ -127,7 +135,7 @@ class FlagEmbedBuilder extends quill.EmbedBuilder {
       );
     }
 
-    return Text('[flag:$flagCode]', style: const TextStyle(color: Colors.grey));
+    return Text('[flag:$data]', style: const TextStyle(color: Colors.grey));
   }
 
   @override

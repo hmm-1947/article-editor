@@ -1,8 +1,8 @@
 import 'dart:convert';
-import 'package:arted/infobox_panel.dart';
-import 'package:arted/models/articles.dart';
+import 'package:interlogue/infobox_panel.dart';
+import 'package:interlogue/models/articles.dart';
 import 'package:flutter/material.dart';
-import 'package:arted/app_database.dart';
+import 'package:interlogue/app_database.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 
 class WorkspaceController {
@@ -79,118 +79,94 @@ class WorkspaceController {
   }
 
   static List<Map<String, dynamic>> _markdownToDelta(String markdown) {
-    final operations = <Map<String, dynamic>>[];
+    if (markdown.isEmpty) return const [];
 
-    if (markdown.isEmpty) {
-      return operations;
-    }
-
+    final ops = <Map<String, dynamic>>[];
     final lines = markdown.split('\n');
 
-    for (int i = 0; i < lines.length; i++) {
+    for (var i = 0; i < lines.length; i++) {
       final line = lines[i];
 
-      if (line.startsWith('[align:')) {
-        continue;
-      }
+      if (line.startsWith('[align:')) continue;
 
       if (line.startsWith('## ')) {
-        final text = _stripHeadingId(line.substring(3).trim());
-        operations.add({'insert': text});
-        operations.add({
-          'insert': '\n',
-          'attributes': {'header': 2},
-        });
+        ops
+          ..add({'insert': _stripHeadingId(line.substring(3).trim())})
+          ..add({
+            'insert': '\n',
+            'attributes': {'header': 2},
+          });
         continue;
       }
 
       if (line.isNotEmpty) {
-        _processInlineFormatting(operations, line);
+        _processInlineFormatting(ops, line);
       }
 
       if (i < lines.length - 1 || line.isNotEmpty) {
-        operations.add({'insert': '\n'});
+        ops.add({'insert': '\n'});
       }
     }
 
-    return operations;
+    return ops;
   }
 
   static String _stripHeadingId(String text) {
     return text.replaceAll(RegExp(r'\{#.*?\}'), '').trim();
   }
 
+  static final RegExp _inlineRegex = RegExp(
+    r'(\*\*.*?\*\*|__.*?__|~~.*?~~|\^.*?\^|~(?!~).*?~|_.*?_|\[\[.*?\]\]|\[flag:[A-Z0-9]{2,3}\])',
+  );
+
   static void _processInlineFormatting(
-    List<Map<String, dynamic>> operations,
+    List<Map<String, dynamic>> ops,
     String line,
   ) {
-    final regex = RegExp(
-      r'(\*\*.*?\*\*|__.*?__|~~.*?~~|\^.*?\^|~(?!~).*?~|_.*?_|\[\[.*?\]\]|\[flag:[A-Z0-9]{2,3}\])',
-    );
+    int last = 0;
 
-    int lastIndex = 0;
-
-    for (final match in regex.allMatches(line)) {
-      if (match.start > lastIndex) {
-        operations.add({'insert': line.substring(lastIndex, match.start)});
+    for (final m in _inlineRegex.allMatches(line)) {
+      if (m.start > last) {
+        ops.add({'insert': line.substring(last, m.start)});
       }
 
-      final token = match.group(0)!;
+      final t = m.group(0)!;
 
-      if (token.startsWith('**')) {
-        final text = token.substring(2, token.length - 2);
-        operations.add({
-          'insert': text,
-          'attributes': {'bold': true},
-        });
-      } else if (token.startsWith('__')) {
-        final text = token.substring(2, token.length - 2);
-        operations.add({
-          'insert': text,
-          'attributes': {'underline': true},
-        });
-      } else if (token.startsWith('~~')) {
-        final text = token.substring(2, token.length - 2);
-        operations.add({
-          'insert': text,
-          'attributes': {'strike': true},
-        });
-      } else if (token.startsWith('^')) {
-        final text = token.substring(1, token.length - 1);
-        operations.add({
-          'insert': text,
-          'attributes': {'script': 'super'},
-        });
-      } else if (token.startsWith('~') && !token.startsWith('~~')) {
-        final text = token.substring(1, token.length - 1);
-        operations.add({
-          'insert': text,
-          'attributes': {'script': 'sub'},
-        });
-      } else if (token.startsWith('_') && !token.startsWith('__')) {
-        final text = token.substring(1, token.length - 1);
-        operations.add({
-          'insert': text,
-          'attributes': {'italic': true},
-        });
-      } else if (token.startsWith('[[')) {
-        final content = token.substring(2, token.length - 2);
-        final parts = content.split('|');
-        final displayText = parts.first;
-        final linkTarget = parts.length > 1 ? parts.last : parts.first;
-        operations.add({
-          'insert': displayText,
-          'attributes': {'link': linkTarget},
-        });
-      } else if (token.startsWith('[flag:')) {
-        operations.add({'insert': token});
+      Map<String, dynamic>? attr;
+      String text = t;
+
+      if (t.startsWith('**')) {
+        text = t.substring(2, t.length - 2);
+        attr = {'bold': true};
+      } else if (t.startsWith('__')) {
+        text = t.substring(2, t.length - 2);
+        attr = {'underline': true};
+      } else if (t.startsWith('~~')) {
+        text = t.substring(2, t.length - 2);
+        attr = {'strike': true};
+      } else if (t.startsWith('^')) {
+        text = t.substring(1, t.length - 1);
+        attr = {'script': 'super'};
+      } else if (t.startsWith('~') && !t.startsWith('~~')) {
+        text = t.substring(1, t.length - 1);
+        attr = {'script': 'sub'};
+      } else if (t.startsWith('_') && !t.startsWith('__')) {
+        text = t.substring(1, t.length - 1);
+        attr = {'italic': true};
+      } else if (t.startsWith('[[')) {
+        final body = t.substring(2, t.length - 2).split('|');
+        text = body.first;
+        attr = {'link': body.length > 1 ? body.last : body.first};
       }
 
-      lastIndex = match.end;
+      ops.add(
+        attr == null ? {'insert': text} : {'insert': text, 'attributes': attr},
+      );
+      last = m.end;
     }
 
-    if (lastIndex < line.length) {
-      operations.add({'insert': line.substring(lastIndex)});
+    if (last < line.length) {
+      ops.add({'insert': line.substring(last)});
     }
   }
 
@@ -198,22 +174,17 @@ class WorkspaceController {
     return jsonEncode(document.toDelta().toJson());
   }
 
-  quill.Document _documentFromJson(String json) {
-    if (json.isEmpty) {
-      return quill.Document();
-    }
+  quill.Document _documentFromJson(String raw) {
+    if (raw.isEmpty) return quill.Document();
 
     try {
-      final decoded = jsonDecode(json);
+      final decoded = jsonDecode(raw);
       if (decoded is List) {
         return quill.Document.fromJson(decoded);
       }
-    } catch (e) {
-      // Not JSON - treat as markdown
-    }
+    } catch (_) {}
 
-    final operations = _markdownToDelta(json);
-    return quill.Document.fromJson(operations);
+    return quill.Document.fromJson(_markdownToDelta(raw));
   }
 
   Future<void> _loadCategories(Function refreshUI, String projectId) async {
@@ -249,18 +220,18 @@ class WorkspaceController {
     articles
       ..clear()
       ..addAll(
-        rows.map((row) {
-          return Article(
-            id: row['id'] as String,
-            title: row['title'] as String,
-            category: row['category'] as String,
-            content: row['content'] as String,
+        rows.map(
+          (r) => Article(
+            id: r['id'] as String,
+            title: r['title'] as String,
+            category: r['category'] as String,
+            content: r['content'] as String,
             createdAt: DateTime.fromMillisecondsSinceEpoch(
-              row['created_at'] as int,
+              r['created_at'] as int,
             ),
             infobox: {},
-          );
-        }),
+          ),
+        ),
       );
 
     if (articles.isNotEmpty) {
@@ -384,9 +355,7 @@ class WorkspaceController {
     originalTitle = titleController.text;
   }
 
-  // ✅ FIXED: Scan for BOTH header attribute AND size-based headings (backward compatibility)
   void rebuildTocFromContent() {
-    print('🔍 === TOC REBUILD STARTING ===');
     final newEntries = <TocEntry>[];
 
     final doc = contentController.document;
@@ -394,11 +363,7 @@ class WorkspaceController {
     int headingIndex = 0;
 
     for (final node in doc.root.children) {
-      // 🐛 DEBUG: Log the actual node type
-      print('  Node ${headingIndex + 1}: type=${node.runtimeType}');
-
       try {
-        // ✅ Get the plain text first
         final fullText = node.toPlainText().replaceAll('\n', '').trim();
 
         if (fullText.isEmpty) {
@@ -408,14 +373,11 @@ class WorkspaceController {
 
         bool isHeading = false;
 
-        // ✅ METHOD 1: Check for NEW STYLE - block-level header attribute
         final headerAttr = node.style.attributes['header'];
         if (headerAttr?.value == 2) {
           isHeading = true;
-          print('  ✅ Found NEW-STYLE header: "$fullText"');
         }
 
-        // ✅ METHOD 2: Check for OLD STYLE - size=19 + bold (anywhere in the node)
         if (!isHeading) {
           bool hasSize19 = false;
           bool hasBold = false;
@@ -434,19 +396,15 @@ class WorkspaceController {
               }
             }
 
-            // Break early if we found both
             if (hasSize19 && hasBold) break;
           }
 
           if (hasSize19 && hasBold) {
             isHeading = true;
-            print('  ✅ Found OLD-STYLE header (size=19): "$fullText"');
           }
         }
 
-        // Add to TOC if it's a heading
         if (isHeading) {
-          // ✅ Extract ONLY the text portions that have size=19
           final delta = node.toDelta().toList();
           final headingTextParts = <String>[];
           bool lastWasHeading = false;
@@ -458,31 +416,22 @@ class WorkspaceController {
             final attrs = op.attributes;
             final size = attrs?['size'];
 
-            // Check if this text has size=19
             final hasHeadingSize = (size == 19 || size == '19');
 
             if (hasHeadingSize) {
-              // This is heading text - include it
               headingTextParts.add(text);
               lastWasHeading = true;
             } else if (text.contains('\n') && lastWasHeading) {
-              // This is a newline between headings - preserve it
               headingTextParts.add('\n');
             }
           }
 
-          // Join all heading text parts and split by newlines
           final headingText = headingTextParts.join('');
           final headingLines = headingText
               .split('\n')
               .map((line) => line.trim())
               .where((line) => line.isNotEmpty)
               .toList();
-
-          print(
-            '  🔍 Extracted size=19 text, split into ${headingLines.length} lines: $headingLines',
-          );
-
           for (final headingLine in headingLines) {
             newEntries.add(
               TocEntry(
@@ -493,13 +442,9 @@ class WorkspaceController {
               ),
             );
             headingIndex++;
-            print('  📌 Added to TOC: "$headingLine"');
           }
         }
-      } catch (e) {
-        // ⚠️ If we can't process this node, just log and continue
-        print('  ⚠️ Error processing node: $e');
-      }
+      } catch (e) {}
 
       charOffset += node.length;
     }
@@ -509,18 +454,10 @@ class WorkspaceController {
       ..addAll(newEntries);
 
     tocVersion.value++;
-
-    print(
-      '🔄 TOC COMPLETE: ${tocEntries.length} headings found (version ${tocVersion.value})',
-    );
-    print('=== TOC REBUILD COMPLETE ===\n');
   }
 
-  void scrollToHeading(String id, ScrollController scrollController) {
-    final entry = tocEntries.firstWhere(
-      (e) => e.id == id,
-      orElse: () => tocEntries.first,
-    );
+  void scrollToHeading(String id, ScrollController controller) {
+    final entry = tocEntries.firstWhere((e) => e.id == id);
 
     contentController.updateSelection(
       TextSelection.collapsed(offset: entry.textOffset),
@@ -528,50 +465,19 @@ class WorkspaceController {
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!scrollController.hasClients) {
-        return;
-      }
+      if (!controller.hasClients) return;
 
-      final doc = contentController.document;
-      double estimatedHeight = 0.0;
-
-      int currentOffset = 0;
-      for (final node in doc.root.children) {
-        if (currentOffset >= entry.textOffset) break;
-
-        final style = node.style.attributes['header'];
-        if (style != null) {
-          if (style.value == 1) {
-            estimatedHeight += 28 * 1.4 + 24;
-          } else if (style.value == 2) {
-            estimatedHeight += 22 * 1.4 + 18;
-          } else {
-            estimatedHeight += 18 * 1.4 + 14;
-          }
-        } else {
-          final textLength = node.toPlainText().length;
-          final lines = (textLength / 80).ceil().clamp(1, 10);
-          estimatedHeight += lines * (14 * 1.6 + 16);
-        }
-
-        currentOffset += node.length;
-      }
-
-      final targetScroll = (estimatedHeight - 100).clamp(
-        0.0,
-        scrollController.position.maxScrollExtent,
-      );
-
-      scrollController.animateTo(
-        targetScroll,
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.easeInOutCubic,
+      controller.animateTo(
+        (entry.textOffset * 0.6).clamp(0, controller.position.maxScrollExtent),
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
       );
     });
   }
 
   Future<void> _loadInfoboxBlocks(Article article) async {
     final db = await AppDatabase.database;
+
     final rows = await db.query(
       'infobox_blocks',
       where: 'article_id = ?',
@@ -582,11 +488,11 @@ class WorkspaceController {
     article.infoboxBlocks
       ..clear()
       ..addAll(
-        rows.map((row) {
+        rows.map((r) {
           final type = InfoboxBlockType.values.firstWhere(
-            (t) => t.name == row['type'],
+            (t) => t.name == r['type'],
           );
-          return InfoboxBlock.fromJson(type, jsonDecode(row['data'] as String));
+          return InfoboxBlock.fromJson(type, jsonDecode(r['data'] as String));
         }),
       );
   }
@@ -600,14 +506,13 @@ class WorkspaceController {
       whereArgs: [article.id],
     );
 
-    for (int i = 0; i < article.infoboxBlocks.length; i++) {
-      final block = article.infoboxBlocks[i];
-
+    for (var i = 0; i < article.infoboxBlocks.length; i++) {
+      final b = article.infoboxBlocks[i];
       await db.insert('infobox_blocks', {
         'id': '${article.id}_$i',
         'article_id': article.id,
-        'type': block.type.name,
-        'data': jsonEncode(block.toJson()),
+        'type': b.type.name,
+        'data': jsonEncode(b.toJson()),
         'position': i,
       });
     }

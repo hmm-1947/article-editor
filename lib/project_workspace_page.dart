@@ -1,13 +1,13 @@
-import 'package:arted/app_database.dart';
-import 'package:arted/flags.dart';
-import 'package:arted/models/articles.dart';
-import 'package:arted/widgets/article_editor.dart';
+import 'package:interlogue/app_database.dart';
+import 'package:interlogue/flags.dart';
+import 'package:interlogue/models/articles.dart';
+import 'package:interlogue/widgets/article_editor.dart';
 import 'package:flutter/material.dart';
 import 'dashboard_page.dart';
 import 'infobox_panel.dart';
 import 'controllers/workspace_controller.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
-import 'package:arted/widgets/quill_toolbar_wrapper.dart';
+import 'package:interlogue/widgets/quill_toolbar_wrapper.dart';
 import 'dart:io';
 
 class ProjectWorkspacePage extends StatefulWidget {
@@ -185,11 +185,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
   }
 
   Future<void> _switchArticleSafely(Article target) async {
-    print('🔀 _switchArticleSafely called for: ${target.title}');
-    print('   Current article: ${controller.selectedArticle?.title}');
-    print(
-      '   Are they the same object? ${controller.selectedArticle == target}',
-    );
     final canSwitch = await controller.requestArticleSwitch(target, () async {
       if (controller.hasUnsavedChanges) {
         await controller.saveArticle(widget.project.id, _refreshUI);
@@ -204,9 +199,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
 
       controller.selectedArticle = target;
       controller.openArticleByTitle(target.title, _refreshUI);
-
-      print('✅ Article switched and loaded: ${target.title}');
-
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!tabScrollController.hasClients) return;
 
@@ -229,7 +221,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
       return;
     }
 
-    // Handle unsaved changes dialog
     final result = await showDialog<String>(
       context: context,
       builder: (_) => AlertDialog(
@@ -274,8 +265,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
 
     controller.openArticleByTitle(target.title, _refreshUI);
 
-    print('✅ Article switched after save dialog: ${target.title}');
-
     setState(() {});
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -286,11 +275,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
         curve: Curves.easeOut,
       );
     });
-  }
-
-  void _resetEditorScrollToTop() {
-    if (!articleScrollController.hasClients) return;
-    articleScrollController.jumpTo(0.0);
   }
 
   void _confirmDeleteArticle(Article article) {
@@ -624,7 +608,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                     tooltip: "Add new flag",
                     icon: const Icon(Icons.add, color: Colors.white),
                     onPressed: () async {
-                      // Ask for country code
                       final code = await showDialog<String>(
                         context: context,
                         builder: (_) {
@@ -655,6 +638,7 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                                 ),
                               ),
                               ElevatedButton(
+                                style: ProjectWorkspacePage.sidebarButtonStyle,
                                 onPressed: () =>
                                     Navigator.pop(context, ctrl.text.trim()),
                                 child: const Text("Next"),
@@ -839,6 +823,7 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
             child: const Text("Discard", style: TextStyle(color: grey)),
           ),
           ElevatedButton(
+            style: ProjectWorkspacePage.sidebarButtonStyle,
             onPressed: () async {
               if (controller.hasUnsavedChanges) {
                 await controller.saveArticle(widget.project.id, _refreshUI);
@@ -982,10 +967,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                                                 cleanTitle = title.substring(7);
                                               }
 
-                                              print(
-                                                'Looking for article: "$cleanTitle" (original: "$title")',
-                                              );
-
                                               final target = controller.articles
                                                   .where(
                                                     (a) =>
@@ -997,17 +978,7 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                                                   .firstOrNull;
 
                                               if (target != null) {
-                                                print(
-                                                  ' Found article: ${target.title}',
-                                                );
                                                 _switchArticleSafely(target);
-                                              } else {
-                                                print(
-                                                  ' Article not found among ${controller.articles.length} articles',
-                                                );
-                                                print(
-                                                  '   Available: ${controller.articles.map((a) => a.title).join(", ")}',
-                                                );
                                               }
                                             },
 
@@ -1900,10 +1871,6 @@ class _ProjectWorkspacePageState extends State<ProjectWorkspacePage> {
                 child: ValueListenableBuilder<int>(
                   valueListenable: controller.tocVersion,
                   builder: (context, version, child) {
-                    print(
-                      'TOC Panel rebuilding, version: $version, entries: ${controller.tocEntries.length}',
-                    );
-
                     if (controller.tocEntries.isEmpty) {
                       return const Center(
                         child: Text(
